@@ -23,6 +23,12 @@ describe("TokenERC20", function () {
   // Deployment Tests
 
   describe("Deployment", function () {
+    it("should revert if max supply is set as 0", async function () {
+      const Token = await ethers.getContractFactory("TokenERC20");
+      await expect(
+        Token.deploy(owner.address, NAME, SYMBOL, 0),
+      ).to.be.revertedWith("Max Supply must be greater than 0");
+    });
     it("should set the correct name", async function () {
       expect(await token.name()).to.equal(NAME);
     });
@@ -71,9 +77,9 @@ describe("TokenERC20", function () {
 
     it("should revert if minting exceeds max supply", async function () {
       const overMax = MAX_SUPPLY + ethers.parseEther("1");
-      await expect(token.mint(alice.address, overMax)).to.be.revertedWith(
-        "Minting more than max supply",
-      );
+      await expect(
+        token.mint(alice.address, overMax),
+      ).to.be.revertedWithCustomError(token, "ExceedsMaxSupply");
     });
 
     it("should allow minting up to exactly max supply", async function () {
@@ -85,7 +91,21 @@ describe("TokenERC20", function () {
       await token.mint(alice.address, ethers.parseEther("999999"));
       await expect(
         token.mint(alice.address, ethers.parseEther("2")),
-      ).to.be.revertedWith("Minting more than max supply");
+      ).to.be.revertedWithCustomError(token, "ExceedsMaxSupply");
+    });
+
+    it("should revert mint after renounceOwnership", async function () {
+      await token.renounceOwnership();
+      await expect(
+        token.mint(alice.address, ethers.parseEther("1")),
+      ).to.be.revertedWithCustomError(token, "OwnableUnauthorizedAccount");
+    });
+
+    it("should emit Mint event on successful mint", async function () {
+      const amount = ethers.parseEther("100");
+      await expect(token.mint(alice.address, amount))
+        .to.emit(token, "Mint")
+        .withArgs(alice.address, amount);
     });
   });
 
@@ -274,6 +294,91 @@ describe("TokenERC20", function () {
     it("should allow owner to renounce ownership", async function () {
       await token.renounceOwnership();
       expect(await token.owner()).to.equal(ethers.ZeroAddress);
+    });
+
+    it("should revert transferOwnership to zero address", async function () {
+      await expect(
+        token.transferOwnership(ethers.ZeroAddress),
+      ).to.be.revertedWithCustomError(token, "OwnableInvalidOwner");
+    });
+  });
+
+  describe("Permit (EIP-2612)", function () {
+    it("should allow an approval via a signed permit", async function () {
+      const amount = ethers.parseEther("50");
+      const nonce = await token.nonces(alice.address);
+      const deadline = Math.floor(Date.now() / 1000) + 3600;
+
+      const domain = {
+        name: await token.name(),
+        version: "1",
+        chainId: (await ethers.provider.getNetwork()).chainId,
+        verifyingContract: await token.getAddress(),
+      };
+
+      const types = {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      };
+
+      const sig = await alice.signTypedData(domain, types, {
+        owner: alice.address,
+        spender: bob.address,
+        value: amount,
+        nonce,
+        deadline,
+      });
+      const { v, r, s } = ethers.Signature.from(sig);
+
+      await token
+        .connect(bob)
+        .permit(alice.address, bob.address, amount, deadline, v, r, s);
+      expect(await token.allowance(alice.address, bob.address)).to.equal(
+        amount,
+      );
+    });
+
+    it("should revert permit with an expired deadline", async function () {
+      const amount = ethers.parseEther("50");
+      const nonce = await token.nonces(alice.address);
+      const deadline = Math.floor(Date.now() / 1000) - 1;
+
+      const domain = {
+        name: await token.name(),
+        version: "1",
+        chainId: (await ethers.provider.getNetwork()).chainId,
+        verifyingContract: await token.getAddress(),
+      };
+
+      const types = {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      };
+
+      const sig = await alice.signTypedData(domain, types, {
+        owner: alice.address,
+        spender: bob.address,
+        value: amount,
+        nonce,
+        deadline,
+      });
+      const { v, r, s } = ethers.Signature.from(sig);
+
+      await expect(
+        token
+          .connect(bob)
+          .permit(alice.address, bob.address, amount, deadline, v, r, s),
+      ).to.be.revertedWithCustomError(token, "ERC2612ExpiredSignature");
     });
   });
 });

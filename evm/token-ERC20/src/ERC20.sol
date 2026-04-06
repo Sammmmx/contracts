@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Compatible with OpenZeppelin Contracts ^5.6.0
-pragma solidity ^0.8.26;
+pragma solidity 0.8.26;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {ERC20Pausable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+
+error ExceedsMaxSupply(uint256 requested, uint256 available);
 
 contract TokenERC20 is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Permit {
 
@@ -17,9 +19,12 @@ contract TokenERC20 is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Permit
         Ownable(initialOwner)
         ERC20Permit(name)
     {
+        require(_maxSupply > 0, "Max Supply must be greater than 0");
         maxSupply = _maxSupply;
 
     }
+
+    event Mint(address indexed to, uint256 amount);
 
     function pause() public onlyOwner {
         _pause();
@@ -30,8 +35,10 @@ contract TokenERC20 is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Permit
     }
 
     function mint(address to, uint256 amount) public onlyOwner {
-        require(totalSupply() + amount <= maxSupply, "Minting more than max supply");
+        if (totalSupply() + amount > maxSupply) 
+        revert ExceedsMaxSupply(totalSupply() + amount, maxSupply - totalSupply());
         _mint(to, amount);
+        emit Mint(to, amount);
     }
 
     function _update(address from, address to, uint256 value)
