@@ -27,7 +27,7 @@ describe("TokenERC20", function () {
       const Token = await ethers.getContractFactory("TokenERC20");
       await expect(
         Token.deploy(owner.address, NAME, SYMBOL, 0),
-      ).to.be.revertedWith("Max Supply must be greater than 0");
+      ).to.be.revertedWithCustomError(Token, "ZeroMaxSupply");
     });
     it("should set the correct name", async function () {
       expect(await token.name()).to.equal(NAME);

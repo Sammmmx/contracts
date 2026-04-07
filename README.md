@@ -4,7 +4,7 @@ Reusable smart contract templates for EVM (Solidity + Foundry) and Solana (Ancho
 
 ## Structure
 
-`evm/`           # Solidity contracts with Foundry
+`evm/`           # Solidity contract templates (Hardhat + TypeScript tests)
 `solana/`        # Anchor programs
 
 ## EVM Contracts (Planned)

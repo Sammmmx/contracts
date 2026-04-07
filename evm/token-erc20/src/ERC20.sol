@@ -8,7 +8,8 @@ import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC2
 import {ERC20Pausable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-error ExceedsMaxSupply(uint256 requested, uint256 available);
+error ExceedsMaxSupply(uint256 amount, uint256 remainingMintable);
+error ZeroMaxSupply();
 
 contract TokenERC20 is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Permit {
 
@@ -19,9 +20,8 @@ contract TokenERC20 is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Permit
         Ownable(initialOwner)
         ERC20Permit(name)
     {
-        require(_maxSupply > 0, "Max Supply must be greater than 0");
+        if (_maxSupply == 0) revert ZeroMaxSupply();
         maxSupply = _maxSupply;
-
     }
 
     event Mint(address indexed to, uint256 amount);
@@ -35,8 +35,8 @@ contract TokenERC20 is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Permit
     }
 
     function mint(address to, uint256 amount) public onlyOwner {
-        if (totalSupply() + amount > maxSupply) 
-        revert ExceedsMaxSupply(totalSupply() + amount, maxSupply - totalSupply());
+        uint256 remaining = maxSupply - totalSupply();
+        if (amount > remaining) revert ExceedsMaxSupply(amount, remaining);
         _mint(to, amount);
         emit Mint(to, amount);
     }
