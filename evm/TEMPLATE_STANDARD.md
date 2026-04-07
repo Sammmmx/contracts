@@ -53,7 +53,7 @@ Every template must include a `.env.example` with all required environment varia
 
 ```
 PRIVATE_KEY=
-ALCHEMY_KEY=
+ALCHEMY_URL=
 ETHERSCAN_API_KEY=
 ```
 
