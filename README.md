@@ -1,5 +1,8 @@
 # w3-kit/contracts
 
+[![CI](https://github.com/w3-kit/contracts/actions/workflows/ci.yml/badge.svg)](https://github.com/w3-kit/contracts/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 Reusable smart contract templates for EVM (Solidity + Foundry) and Solana (Anchor).
 
 ## Structure
