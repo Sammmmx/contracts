@@ -24,6 +24,7 @@ error NotSigner(address account);
     error UnknownTokenAddress();
     error InvalidTransactionType();
     error InsufficientFunds();
+    error NotProposer();
 
 /// @title Multisig Wallet
 /// @notice Multi-signature wallet supporting ETH, ERC20 transfers and signer management
@@ -36,6 +37,7 @@ contract Multisig is ReentrancyGuard {
     /// @param amount Amount of ETH deposited
     event Deposit(address indexed sender, uint256 amount);
     event Submitted(uint256 _txId, address caller, address receiver, uint256 amount);
+    event Confirmed(uint256 indexed txId, address indexed signer);
 
     /// @notice Emitted when a transaction is executed
     /// @param txId Transaction ID
@@ -53,13 +55,14 @@ contract Multisig is ReentrancyGuard {
     /// @param value ETH or token amount
     /// @param txType Transaction type
     /// @param state Transaction state
-    /// @param confirmations Number of confirmations
+    /// @param propser Caller Address
     struct Transaction {
         address to;
         address token;
         uint256 value;
         TxType txType;
         States state;
+        address proposer;
     }
 
     /// @notice List of signer addresses
@@ -148,7 +151,8 @@ contract Multisig is ReentrancyGuard {
             token: _token,
             value: _value,
             txType: _type,
-            state: States.PENDING
+            state: States.PENDING,
+            proposer: msg.sender
         }));
 
     _tryAutoConfirm(txId);
@@ -164,6 +168,8 @@ contract Multisig is ReentrancyGuard {
         require(!hasConfirmed[_txId][msg.sender], AlreadyConfirmed());
 
         hasConfirmed[_txId][msg.sender] = true;
+
+        emit Confirmed(_txId, msg.sender);
     }
 
     /// @notice Revoke a confirmation
@@ -180,14 +186,17 @@ contract Multisig is ReentrancyGuard {
     /// @param _txId Transaction ID
     function cancel(uint256 _txId) public onlySigner {
         require(_txId < transactions.length, TxNonExistent());
-        require(transactions[_txId].state == States.PENDING, TxNotPending());
+        Transaction storage t = transactions[_txId];
+        require(t.state == States.PENDING, TxNotPending());
+
+        require(msg.sender == t.proposer, NotProposer());
         
         transactions[_txId].state = States.CANCELLED;
     }
 
     /// @notice Execute transaction after threshold confirmations
     /// @param _txId Transaction ID
-    function execute(uint256 _txId) public onlySigner nonReentrant {
+    function execute(uint256 _txId) public nonReentrant {
         require(_txId < transactions.length, TxNonExistent());
         Transaction storage t = transactions[_txId];
         

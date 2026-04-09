@@ -55,7 +55,7 @@ describe("multisig", function () {
 
   // Deployment Tests
 
-  describe("Deployment", async function () {
+  describe("Deployment", function () {
     it("should revert if address input is 0", async function () {
       const MultiSig = await ethers.getContractFactory("Multisig");
       await expect(
@@ -141,7 +141,7 @@ describe("multisig", function () {
 
   // submit Tests
 
-  describe("submit", async function () {
+  describe("submit", function () {
     it("should revert if Transaction Type is incorrect", async function () {
       await expect(
         multiSig
@@ -155,7 +155,7 @@ describe("multisig", function () {
       ).to.be.revertedWithCustomError(multiSig, "InvalidTransactionType");
     });
 
-    describe("ETH Transaction", async function () {
+    describe("ETH Transaction", function () {
       it("should revert if receiver address is incorrect", async function () {
         await expect(
           multiSig
@@ -218,7 +218,7 @@ describe("multisig", function () {
       });
     });
 
-    describe("ERC20 Transaction", async function () {
+    describe("ERC20 Transaction", function () {
       it("should revert if receiver address is incorrect", async function () {
         await expect(
           multiSig
@@ -266,7 +266,7 @@ describe("multisig", function () {
       });
     });
 
-    describe("ADD_SIGNER Transaction", async function () {
+    describe("ADD_SIGNER Transaction", function () {
       it("should revert if input is not zero", async function () {
         await expect(
           multiSig
@@ -294,7 +294,7 @@ describe("multisig", function () {
       });
     });
 
-    describe("REMOVE_SIGNER Transaction", async function () {
+    describe("REMOVE_SIGNER Transaction", function () {
       it("should revert if input is not zero", async function () {
         await expect(
           multiSig
@@ -314,7 +314,7 @@ describe("multisig", function () {
       });
     });
 
-    describe("THRESHOLD Transaction", async function () {
+    describe("THRESHOLD Transaction", function () {
       it("should revert if address is not zero", async function () {
         await expect(
           multiSig
@@ -347,7 +347,7 @@ describe("multisig", function () {
 
   // Confirm Tests
 
-  describe("Confirm", async function () {
+  describe("Confirm", function () {
     beforeEach(async function () {
       await multiSig
         .connect(Signer1)
@@ -379,18 +379,14 @@ describe("multisig", function () {
     });
 
     it("should emit Confirmed event", async function () {
-      expect(await multiSig.connect(Signer2).confirm(0))
+      await expect(multiSig.connect(Signer2).confirm(0))
         .to.emit(multiSig, "Confirmed")
         .withArgs(0, Signer2.address);
     });
   });
 
-  describe("Revoke and Cancel Full Coverage", function () {
-    const txId = 0;
-
+  describe("Revoke and Cancel", function () {
     beforeEach(async function () {
-      // Fresh setup for each test:
-      // 1. Submit a transaction (Index 0)
       await multiSig
         .connect(Signer1)
         .submit(
@@ -408,98 +404,78 @@ describe("multisig", function () {
 
     // --- REVOKE FUNCTION TESTS ---
 
-    describe("revoke()", function () {
-      it("should allow a signer to revoke their confirmation", async function () {
-        await multiSig.connect(Signer2).confirm(txId); // confirmations = 2
-        await multiSig.connect(Signer2).revoke(txId); // confirmations = 1
-
-        expect(await multiSig.hasConfirmed(txId, Signer2.address)).to.be.false;
-      });
-
-      it("should revert if a non-signer tries to revoke", async function () {
-        await expect(multiSig.connect(Account1).revoke(txId))
-          .to.be.revertedWithCustomError(multiSig, "NotSigner")
-          .withArgs(Account1.address);
-      });
-
-      it("should revert if a signer tries to revoke a vote they never cast", async function () {
-        // Signer 2 has not confirmed yet
-        await expect(
-          multiSig.connect(Signer2).revoke(txId),
-        ).to.be.revertedWithCustomError(multiSig, "NotConfirmed");
-      });
-
-      it("should revert if revoking an already EXECUTED transaction", async function () {
-        await multiSig.connect(Signer2).confirm(txId);
-        await multiSig.execute(txId); // State: EXECUTED
-
-        await expect(
-          multiSig.connect(Signer1).revoke(txId),
-        ).to.be.revertedWithCustomError(multiSig, "TxNotPending");
-      });
-
-      it("should revert if revoking a CANCELLED transaction", async function () {
-        await multiSig.connect(Signer1).cancel(txId); // State: CANCELLED
-
-        await expect(
-          multiSig.connect(Signer1).revoke(txId),
-        ).to.be.revertedWithCustomError(multiSig, "TxNotPending");
-      });
-    });
-
-    // --- CANCEL FUNCTION TESTS ---
-
     describe("cancel()", function () {
-      it("should allow a signer to cancel a pending transaction", async function () {
-        await multiSig.connect(Signer1).cancel(txId);
+      it("should allow the proposer to cancel a pending transaction", async function () {
+        // Signer1 is the proposer from the beforeEach block
+        await multiSig.connect(Signer1).cancel(0);
 
-        const tx = await multiSig.transactions(txId);
+        const tx = await multiSig.transactions(0);
         expect(tx.state).to.equal(STATE.CANCELLED);
       });
 
+      it("should revert if a different signer tries to cancel", async function () {
+        // Signer1 proposed it, Signer2 is a signer but not the proposer
+        await expect(
+          multiSig.connect(Signer2).cancel(0),
+        ).to.be.revertedWithCustomError(multiSig, "NotProposer");
+      });
+
       it("should revert if a non-signer tries to cancel", async function () {
-        await expect(multiSig.connect(Account1).cancel(txId))
+        await expect(multiSig.connect(Account1).cancel(0))
           .to.be.revertedWithCustomError(multiSig, "NotSigner")
           .withArgs(Account1.address);
       });
 
       it("should revert if trying to cancel an already EXECUTED transaction", async function () {
-        await multiSig.connect(Signer2).confirm(txId);
-        await multiSig.execute(txId);
+        await multiSig.connect(Signer2).confirm(0);
+        await multiSig.execute(0);
 
         await expect(
-          multiSig.connect(Signer1).cancel(txId),
+          multiSig.connect(Signer1).cancel(0),
         ).to.be.revertedWithCustomError(multiSig, "TxNotPending");
       });
 
       it("should revert if trying to cancel an already CANCELLED transaction", async function () {
-        await multiSig.connect(Signer1).cancel(txId);
+        await multiSig.connect(Signer1).cancel(0);
 
         await expect(
-          multiSig.connect(Signer2).cancel(txId),
+          multiSig.connect(Signer1).cancel(0),
         ).to.be.revertedWithCustomError(multiSig, "TxNotPending");
       });
+    }); // --- REVOKE FUNCTION TESTS ---
 
-      it("should prevent execution after cancellation even if threshold was met", async function () {
-        await multiSig.connect(Signer2).confirm(txId); // Threshold met (2/3)
-        await multiSig.connect(Signer1).cancel(txId); // Signer 1 changes mind and cancels
+    describe("revoke()", function () {
+      it("should allow a signer to revoke their confirmation", async function () {
+        await multiSig.connect(Signer2).confirm(0);
+        await multiSig.connect(Signer2).revoke(0);
 
-        await expect(multiSig.execute(txId)).to.be.revertedWithCustomError(
-          multiSig,
-          "TxNotPending",
-        );
+        expect(await multiSig.hasConfirmed(0, Signer2.address)).to.be.false;
+      });
+
+      it("should revert if a signer tries to revoke a vote they never cast", async function () {
+        await expect(
+          multiSig.connect(Signer2).revoke(0),
+        ).to.be.revertedWithCustomError(multiSig, "NotConfirmed");
+      });
+
+      it("should revert if revoking an already EXECUTED transaction", async function () {
+        await multiSig.connect(Signer2).confirm(0);
+        await multiSig.execute(0);
+
+        await expect(
+          multiSig.connect(Signer1).revoke(0),
+        ).to.be.revertedWithCustomError(multiSig, "TxNotPending");
       });
     });
 
     // --- EDGE CASE: TX NON-EXISTENT ---
 
     it("should revert revoke and cancel if txId is invalid", async function () {
-      const invalidId = 999;
       await expect(
-        multiSig.connect(Signer1).revoke(invalidId),
+        multiSig.connect(Signer1).revoke(10),
       ).to.be.revertedWithCustomError(multiSig, "TxNonExistent");
       await expect(
-        multiSig.connect(Signer1).cancel(invalidId),
+        multiSig.connect(Signer1).cancel(10),
       ).to.be.revertedWithCustomError(multiSig, "TxNonExistent");
     });
   });
@@ -555,7 +531,7 @@ describe("multisig", function () {
 
   // Execute Tests
 
-  describe("Execute", async function () {
+  describe("Execute", function () {
     it("should revert if transaction id is invalid", async function () {
       await expect(multiSig.execute(99)).to.be.revertedWithCustomError(
         multiSig,
@@ -578,7 +554,7 @@ describe("multisig", function () {
       );
     });
 
-    describe("ETH Transaction", async function () {
+    describe("ETH Transaction", function () {
       beforeEach(async function () {
         await multiSig
           .connect(Signer1)
@@ -642,7 +618,7 @@ describe("multisig", function () {
       });
     });
 
-    describe("ERC20 Transaction", async function () {
+    describe("ERC20 Transaction", function () {
       beforeEach(async function () {
         await multiSig
           .connect(Signer1)
@@ -669,7 +645,7 @@ describe("multisig", function () {
       });
     });
 
-    describe("ADD_SIGNER Transaction", async function () {
+    describe("ADD_SIGNER Transaction", function () {
       beforeEach(async function () {
         await multiSig
           .connect(Signer1)
@@ -689,7 +665,7 @@ describe("multisig", function () {
       });
     });
 
-    describe("REMOVE_SIGNER Transaction", async function () {
+    describe("REMOVE_SIGNER Transaction", function () {
       beforeEach(async function () {
         await multiSig
           .connect(Signer1)
@@ -709,7 +685,7 @@ describe("multisig", function () {
       });
     });
 
-    describe("THRESHOLD Transaction", async function () {
+    describe("THRESHOLD Transaction", function () {
       beforeEach(async function () {
         await multiSig
           .connect(Signer1)
