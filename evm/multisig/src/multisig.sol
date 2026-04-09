@@ -1,218 +1,252 @@
-//SPDX-License-Identifier:MIT
-
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-// Custom errors
-error NotSigner(address caller);
-error ExistingSigner();
-error NotEnoughSigners();
+//Custom Errors
+error NotSigner(address account);
+    error AlreadySigner(address account);
+    error NotEnoughSigners();
+    error InvalidThreshold();
+    error InputNotRequired();
+    error AddressNotRequired();
+    error TxNonExistent();
+    error TxNotPending();
+    error AlreadyConfirmed();
+    error NotConfirmed();
+    error ThresholdNotMet();
+    error ExecutionFailed();
+    error InvalidAddress();
+    error TokenNotRequired();
+    error EmptyTransaction();
+    error UnknownTokenAddress();
+    error InvalidTransactionType();
+    error InsufficientFunds();
 
-error ThresholdNotMet();
-error InvalidThreshold();
-error SignersEqualThreshold(uint256 length);
+/// @title Multisig Wallet
+/// @notice Multi-signature wallet supporting ETH, ERC20 transfers and signer management
+/// @dev Uses SafeERC20 and ReentrancyGuard for secure execution
+contract Multisig is ReentrancyGuard {
+    using SafeERC20 for IERC20;
 
-error InvalidTransactionType();
-error TransactionFailed();
-error InsufficientFunds();
-error EmptyTransaction();
+    /// @notice Emitted when ETH is deposited into contract
+    /// @param sender Address sending ETH
+    /// @param amount Amount of ETH deposited
+    event Deposit(address indexed sender, uint256 amount);
+    event Submitted(uint256 _txId, address caller, address receiver, uint256 amount);
 
-error InvalidId();
-error InputNotRequired();
-error InvalidAddress();
-error UnknownTokenAddress();
-error RedundancyDetected();
-error AddressNotRequired();
-error AlreadyConfirmed();
-error TokenNotRequired();
+    /// @notice Emitted when a transaction is executed
+    /// @param txId Transaction ID
+    event Executed(uint256 indexed txId);
 
-contract multisig {
+    /// @notice Transaction types supported by multisig
+    enum TxType { ETH, ERC20, ADD_SIGNER, REMOVE_SIGNER, THRESHOLD }
 
-    enum Tx_Type{NONE, ETH, ERC20, ADD_SIGNER, REMOVE_SIGNER, THRESHOLD}
-    enum States{NONE, PENDING, EXECUTED}
+    /// @notice Transaction states
+    enum States { NONE, PENDING, EXECUTED, CANCELLED }
 
-    struct TxDetails {
-        address _address;
+    /// @notice Transaction structure
+    /// @param to Target address
+    /// @param token ERC20 token address
+    /// @param value ETH or token amount
+    /// @param txType Transaction type
+    /// @param state Transaction state
+    /// @param confirmations Number of confirmations
+    struct Transaction {
+        address to;
         address token;
-        uint256 approvals;
-        uint256 amount;
-        Tx_Type _type;
-        States _state;
+        uint256 value;
+        TxType txType;
+        States state;
     }
 
-    address[] public Signers;
-    uint256 public Threshold;
+    /// @notice List of signer addresses
+    address[] public signers;
 
+    /// @notice Mapping to check signer status
     mapping(address => bool) public isSigner;
-    mapping(uint256 => TxDetails) public Transactions;
+
+    /// @notice Tracks confirmations for transactions
     mapping(uint256 => mapping(address => bool)) public hasConfirmed;
 
-    uint256 private IdCount = 1;
+    /// @notice List of submitted transactions
+    Transaction[] public transactions;
 
-    event Submitted(uint256 indexed txId, address indexed submitter, Tx_Type _type);
-    event Confirmed(uint256 indexed txId, address indexed signer);
-    event Execute(address to, address token, uint256 _amount, uint256 approvals, Tx_Type _type, States state);
+    /// @notice Required confirmations for execution
+    uint256 public threshold;
 
-    constructor(address[] memory _Signers, uint256 _threshold) {
-        for(uint256 i = 0; i < _Signers.length; i++) {
-            if (_Signers[i] == address(0)) revert InvalidAddress();
-            for(uint256 j = i + 1; j < _Signers.length; j++) {
-                if (_Signers[i] == _Signers[j]) revert RedundancyDetected();
+    /// @notice Restricts function access to signers only
+    modifier onlySigner() {
+        if (!isSigner[msg.sender]) revert NotSigner(msg.sender);
+        _;
+    }
+
+    /// @notice Initializes multisig wallet
+    /// @param _signers Initial signer addresses
+    /// @param _threshold Required confirmation threshold
+    constructor(address[] memory _signers, uint256 _threshold) {
+        uint256 len = _signers.length;
+        require(len >= 2, NotEnoughSigners());
+        require(_threshold >= 2 && _threshold <= len, InvalidThreshold());
+        for (uint256 i = 0; i < len; i++) {
+            address signer = _signers[i];
+            require(signer != address(0), InvalidAddress());
+            require(!isSigner[signer], AlreadySigner(signer));
+
+            isSigner[signer] = true;
+            signers.push(signer);
+        }
+        threshold = _threshold;
+    }
+
+    /// @notice Receive ETH deposits
+    receive() external payable {
+        emit Deposit(msg.sender, msg.value);
+    }
+
+    /// @notice Submit a new transaction
+    /// @param _to Target address
+    /// @param _token Token address (if ERC20)
+    /// @param _value Amount to transfer
+    /// @param _typeindex The index of the transaction type (0-4)
+    function submit(address _to, address _token, uint256 _value, uint8 _typeindex) public onlySigner {
+        require(_typeindex <= uint8(TxType.THRESHOLD), InvalidTransactionType());
+
+        TxType _type = TxType(_typeindex);
+    
+        if (_type == TxType.ETH) {
+            require(_to != address(0), InvalidAddress());
+            require(_token == address(0), TokenNotRequired());
+            require(_value > 0, EmptyTransaction());
+        } 
+        else if (_type == TxType.ERC20) {
+            require(_to != address(0), InvalidAddress());
+            require(_token != address(0), UnknownTokenAddress());
+            require(_value > 0, EmptyTransaction());
+        } 
+        else if (_type == TxType.ADD_SIGNER) {
+            require(_to != address(0), InvalidAddress());
+            require(!isSigner[_to], AlreadySigner(_to));
+            require(_token == address(0) && _value == 0, InputNotRequired());
+        } 
+        else if (_type == TxType.REMOVE_SIGNER) {
+            require(isSigner[_to], NotSigner(_to));
+            require(_token == address(0) && _value == 0, InputNotRequired());
+        } 
+        else if (_type == TxType.THRESHOLD) {
+            require(_value > 0, InvalidThreshold());
+            require(_to == address(0) && _token == address(0), AddressNotRequired());
+        }
+
+    // --- State Update ---
+
+        uint256 txId = transactions.length;
+        transactions.push(Transaction({
+            to: _to,
+            token: _token,
+            value: _value,
+            txType: _type,
+            state: States.PENDING
+        }));
+
+    _tryAutoConfirm(txId);
+    emit Submitted(txId, msg.sender, _to, _value);
+    }
+
+
+    /// @notice Confirm a transaction
+    /// @param _txId Transaction ID
+    function confirm(uint256 _txId) public onlySigner {
+        require(_txId < transactions.length, TxNonExistent());
+        require(transactions[_txId].state == States.PENDING, TxNotPending());
+        require(!hasConfirmed[_txId][msg.sender], AlreadyConfirmed());
+
+        hasConfirmed[_txId][msg.sender] = true;
+    }
+
+    /// @notice Revoke a confirmation
+    /// @param _txId Transaction ID
+    function revoke(uint256 _txId) public onlySigner {
+        require(_txId < transactions.length, TxNonExistent());
+        require(transactions[_txId].state == States.PENDING, TxNotPending());
+        require(hasConfirmed[_txId][msg.sender], NotConfirmed());
+
+        hasConfirmed[_txId][msg.sender] = false;
+    }
+
+    /// @notice Cancel a transaction
+    /// @param _txId Transaction ID
+    function cancel(uint256 _txId) public onlySigner {
+        require(_txId < transactions.length, TxNonExistent());
+        require(transactions[_txId].state == States.PENDING, TxNotPending());
+        
+        transactions[_txId].state = States.CANCELLED;
+    }
+
+    /// @notice Execute transaction after threshold confirmations
+    /// @param _txId Transaction ID
+    function execute(uint256 _txId) public onlySigner nonReentrant {
+        require(_txId < transactions.length, TxNonExistent());
+        Transaction storage t = transactions[_txId];
+        
+        require(t.state == States.PENDING, TxNotPending());
+
+        uint256 activeConfirmations = 0;
+        for (uint256 i = 0; i < signers.length; i++) {
+            if (hasConfirmed[_txId][signers[i]]) {
+                activeConfirmations++;
             }
         }
-        require(_Signers.length >= 2, NotEnoughSigners());
-        require(_threshold >= 2 && _threshold <= _Signers.length, InvalidThreshold());
+        require(activeConfirmations >= threshold, ThresholdNotMet());
 
-        uint256 len = _Signers.length;
-        for(uint256 i = 0; i < len; i++) {
-            Signers.push(_Signers[i]);
-            isSigner[_Signers[i]] = true;
+        t.state = States.EXECUTED;
+
+        if (t.txType == TxType.ETH) {
+            require(address(this).balance >= transactions[_txId].value, InsufficientFunds());
+            (bool success, ) = t.to.call{value: t.value}("");
+            require(success, ExecutionFailed());
+        } 
+        else if (t.txType == TxType.ERC20) {
+            IERC20(t.token).safeTransfer(t.to, t.value);
         }
-        Threshold = _threshold;
+        else if (t.txType == TxType.ADD_SIGNER) {
+            isSigner[t.to] = true;
+            signers.push(t.to);
+        }
+        else if (t.txType == TxType.REMOVE_SIGNER) {
+            _removeSigner(t.to);
+        }
+        else if (t.txType == TxType.THRESHOLD) {
+            require(t.value >= 2 && t.value <= signers.length, InvalidThreshold());
+            threshold = t.value;
+        }
+
+        emit Executed(_txId);
     }
 
-    modifier checkId(uint256 _ID) {
-        require(Transactions[_ID]._state == States.PENDING, InvalidId());
-        _;
+    /// @notice Automatically confirms submitted transaction
+    /// @param _txId Transaction ID
+    function _tryAutoConfirm(uint256 _txId) internal {
+        if (isSigner[msg.sender]) {
+            confirm(_txId);
+        }
     }
 
-    modifier checkSigner(address _Signer) {
-        if(!isSigner[_Signer]) revert NotSigner(msg.sender);
-        _;
-    }
-
-    function getSigners() public view returns (address[] memory) {
-        return Signers;
-    }
-
-    function addSigner(address newSigner) internal {
-        require(!isSigner[newSigner], ExistingSigner());
-        Signers.push(newSigner);
-        isSigner[newSigner] = true;
-    }
-
-    function removeSigner(address _Signer) internal
-    checkSigner(_Signer) {
-        uint256 len = Signers.length;
-        if(Threshold == len) revert SignersEqualThreshold(len);
-        for(uint256 i = 0; i < len; i++) {
-            if(Signers[i] == _Signer) {
-                Signers[i] = Signers[len-1];
-                Signers.pop();
+    /// @notice Removes a signer
+    /// @param _signer Signer address to remove
+    function _removeSigner(address _signer) internal {
+        isSigner[_signer] = false;
+        for (uint256 i = 0; i < signers.length; i++) {
+            if (signers[i] == _signer) {
+                signers[i] = signers[signers.length - 1];
+                signers.pop();
                 break;
             }
         }
-        isSigner[_Signer] = false;
-    }
-
-    function updateThreshold(uint256 newThreshold) internal {
-        require(newThreshold <= Signers.length && newThreshold >= 2, InvalidThreshold());
-        Threshold = newThreshold;
-    }
-
-    function transferETH(address _to, uint256 _amount) internal {
-        require(address(this).balance >= _amount, InsufficientFunds());
-        (bool success, ) = _to.call{value:_amount}("");
-        require(success, TransactionFailed());
-    }
-
-    function transferERC20(address _token, address _to, uint256 _amount) internal {
-        bool success = IERC20(_token).transfer(_to, _amount);
-        require(success, TransactionFailed());
-    }
-
-    function _tryAutoConfirm(uint256 _id) private {
-        if(isSigner[msg.sender]) {
-            hasConfirmed[_id][msg.sender] = true;
-            Transactions[_id].approvals++;
+        if (threshold > signers.length) {
+            threshold = signers.length < 2 ? 2 : signers.length;
         }
     }
-
-    function Submit(address _address, address _token, uint256 input, Tx_Type _type) public {
-        require(_type != Tx_Type.NONE, InvalidTransactionType());
-
-        if(_type == Tx_Type.ETH) {
-            require(_address != address(0), InvalidAddress());
-            require(input > 0, EmptyTransaction());
-            require(_token == address(0), TokenNotRequired());
-            Transactions[IdCount] = TxDetails(_address, _token, 0, input, _type, States.PENDING);
-
-        } else if(_type == Tx_Type.ERC20) {
-            require(_address != address(0), InvalidAddress());
-            require(input > 0, EmptyTransaction());
-            require(_token != address(0), UnknownTokenAddress());
-            Transactions[IdCount] = TxDetails(_address, _token, 0, input, _type, States.PENDING);
-
-        } else if(_type == Tx_Type.ADD_SIGNER || _type == Tx_Type.REMOVE_SIGNER) {
-            require(input == 0, InputNotRequired());
-            require(_token == address(0), TokenNotRequired());
-            if(_type == Tx_Type.ADD_SIGNER) {
-                require(!isSigner[_address], ExistingSigner());
-            } else {
-                require(isSigner[_address], NotSigner(msg.sender));
-            }
-            Transactions[IdCount] = TxDetails(_address, _token, 0, input, _type, States.PENDING);
-
-        } else {
-            require(_address == address(0), AddressNotRequired());
-            require(input > 0, InvalidThreshold());
-            require(_token == address(0), TokenNotRequired());
-            Transactions[IdCount] = TxDetails(_address, _token, 0, input, _type, States.PENDING);
-        }
-
-        _tryAutoConfirm(IdCount);
-        emit Submitted(IdCount, msg.sender, _type);
-        IdCount++;
-    }
-
-    function confirm(uint256 _txId) public
-    checkSigner(msg.sender)
-    checkId(_txId) {
-        require(!hasConfirmed[_txId][msg.sender], AlreadyConfirmed());
-        hasConfirmed[_txId][msg.sender] = true;
-        Transactions[_txId].approvals++;
-        emit Confirmed(_txId, msg.sender);
-    }
-
-    function execute(uint256 _txId) public
-    checkId(_txId) {
-        uint256 approvals = Transactions[_txId].approvals;
-        require(approvals >= Threshold, ThresholdNotMet());
-        Tx_Type current = Transactions[_txId]._type;
-
-        if(current == Tx_Type.ETH) {
-            address _to = Transactions[_txId]._address;
-            uint256 Amount = Transactions[_txId].amount;
-            Transactions[_txId]._state = States.EXECUTED;
-            transferETH(_to, Amount);
-            emit Execute(_to, address(0), Amount, approvals, current, States.EXECUTED);
-
-        } else if(current == Tx_Type.ERC20) {
-            address _to = Transactions[_txId]._address;
-            address _token = Transactions[_txId].token;
-            uint256 Amount = Transactions[_txId].amount;
-            Transactions[_txId]._state = States.EXECUTED;
-            transferERC20(_token, _to, Amount);
-            emit Execute(_to, _token, Amount, approvals, current, States.EXECUTED);
-
-        } else if(current == Tx_Type.ADD_SIGNER || current == Tx_Type.REMOVE_SIGNER) {
-            address signer = Transactions[_txId]._address;
-            Transactions[_txId]._state = States.EXECUTED;
-            if(current == Tx_Type.ADD_SIGNER) {
-                addSigner(signer);
-            } else {
-                removeSigner(signer);
-            }
-            emit Execute(signer, address(0), 0, approvals, current, States.EXECUTED);
-
-        } else {
-            uint256 _newThreshold = Transactions[_txId].amount;
-            Transactions[_txId]._state = States.EXECUTED;
-            updateThreshold(_newThreshold);
-            emit Execute(address(0), address(0), _newThreshold, approvals, current, States.EXECUTED);
-        }
-    }
-
-    receive() external payable{}
 }
