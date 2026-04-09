@@ -5,26 +5,27 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-//Custom Errors
+// Custom Errors
 error NotSigner(address account);
-    error AlreadySigner(address account);
-    error NotEnoughSigners();
-    error InvalidThreshold();
-    error InputNotRequired();
-    error AddressNotRequired();
-    error TxNonExistent();
-    error TxNotPending();
-    error AlreadyConfirmed();
-    error NotConfirmed();
-    error ThresholdNotMet();
-    error ExecutionFailed();
-    error InvalidAddress();
-    error TokenNotRequired();
-    error EmptyTransaction();
-    error UnknownTokenAddress();
-    error InvalidTransactionType();
-    error InsufficientFunds();
-    error NotProposer();
+error AlreadySigner(address account);
+error NotEnoughSigners();
+error InvalidThreshold();
+error InputNotRequired();
+error AddressNotRequired();
+error TxNonExistent();
+error TxNotPending();
+error AlreadyConfirmed();
+error NotConfirmed();
+error ThresholdNotMet();
+error ExecutionFailed();
+error InvalidAddress();
+error TokenNotRequired();
+error EmptyTransaction();
+error UnknownTokenAddress();
+error InvalidTransactionType();
+error InsufficientFunds();
+error NotProposer();
+error RemovalWouldBrickWallet();
 
 /// @title Multisig Wallet
 /// @notice Multi-signature wallet supporting ETH, ERC20 transfers and signer management
@@ -36,12 +37,21 @@ contract Multisig is ReentrancyGuard {
     /// @param sender Address sending ETH
     /// @param amount Amount of ETH deposited
     event Deposit(address indexed sender, uint256 amount);
-    event Submitted(uint256 _txId, address caller, address receiver, uint256 amount);
+    /// @notice Emitted when a transaction is submitted
+    /// @param txId Transaction ID
+    /// @param caller Address that submitted the transaction
+    /// @param receiver Target address
+    /// @param amount Transaction value
+    event Submitted(uint256 indexed txId, address indexed caller, address receiver, uint256 amount);
     event Confirmed(uint256 indexed txId, address indexed signer);
 
     /// @notice Emitted when a transaction is executed
     /// @param txId Transaction ID
     event Executed(uint256 indexed txId);
+
+    /// @notice Emitted when a transaction is cancelled
+    /// @param txId Transaction ID
+    event Cancelled(uint256 indexed txId);
 
     /// @notice Transaction types supported by multisig
     enum TxType { ETH, ERC20, ADD_SIGNER, REMOVE_SIGNER, THRESHOLD }
@@ -55,7 +65,7 @@ contract Multisig is ReentrancyGuard {
     /// @param value ETH or token amount
     /// @param txType Transaction type
     /// @param state Transaction state
-    /// @param propser Caller Address
+    /// @param proposer Caller address
     struct Transaction {
         address to;
         address token;
@@ -143,8 +153,6 @@ contract Multisig is ReentrancyGuard {
             require(_to == address(0) && _token == address(0), AddressNotRequired());
         }
 
-    // --- State Update ---
-
         uint256 txId = transactions.length;
         transactions.push(Transaction({
             to: _to,
@@ -155,10 +163,9 @@ contract Multisig is ReentrancyGuard {
             proposer: msg.sender
         }));
 
-    _tryAutoConfirm(txId);
-    emit Submitted(txId, msg.sender, _to, _value);
+        _tryAutoConfirm(txId);
+        emit Submitted(txId, msg.sender, _to, _value);
     }
-
 
     /// @notice Confirm a transaction
     /// @param _txId Transaction ID
@@ -190,8 +197,10 @@ contract Multisig is ReentrancyGuard {
         require(t.state == States.PENDING, TxNotPending());
 
         require(msg.sender == t.proposer, NotProposer());
-        
-        transactions[_txId].state = States.CANCELLED;
+
+        t.state = States.CANCELLED;
+
+        emit Cancelled(_txId);
     }
 
     /// @notice Execute transaction after threshold confirmations
@@ -213,7 +222,7 @@ contract Multisig is ReentrancyGuard {
         t.state = States.EXECUTED;
 
         if (t.txType == TxType.ETH) {
-            require(address(this).balance >= transactions[_txId].value, InsufficientFunds());
+            require(address(this).balance >= t.value, InsufficientFunds());
             (bool success, ) = t.to.call{value: t.value}("");
             require(success, ExecutionFailed());
         } 
@@ -238,24 +247,21 @@ contract Multisig is ReentrancyGuard {
     /// @notice Automatically confirms submitted transaction
     /// @param _txId Transaction ID
     function _tryAutoConfirm(uint256 _txId) internal {
-        if (isSigner[msg.sender]) {
-            confirm(_txId);
-        }
+        confirm(_txId);
     }
 
     /// @notice Removes a signer
     /// @param _signer Signer address to remove
     function _removeSigner(address _signer) internal {
+        uint256 len = signers.length;
+        require(len - 1 >= threshold, RemovalWouldBrickWallet());
         isSigner[_signer] = false;
-        for (uint256 i = 0; i < signers.length; i++) {
+        for (uint256 i = 0; i < len; i++) {
             if (signers[i] == _signer) {
-                signers[i] = signers[signers.length - 1];
+                signers[i] = signers[len - 1];
                 signers.pop();
                 break;
             }
-        }
-        if (threshold > signers.length) {
-            threshold = signers.length < 2 ? 2 : signers.length;
         }
     }
 }

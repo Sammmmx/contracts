@@ -406,11 +406,16 @@ describe("multisig", function () {
 
     describe("cancel()", function () {
       it("should allow the proposer to cancel a pending transaction", async function () {
-        // Signer1 is the proposer from the beforeEach block
         await multiSig.connect(Signer1).cancel(0);
 
         const tx = await multiSig.transactions(0);
         expect(tx.state).to.equal(STATE.CANCELLED);
+      });
+
+      it("should emit Cancelled event", async function () {
+        await expect(multiSig.connect(Signer1).cancel(0))
+          .to.emit(multiSig, "Cancelled")
+          .withArgs(0);
       });
 
       it("should revert if a different signer tries to cancel", async function () {
@@ -516,7 +521,7 @@ describe("multisig", function () {
       expect(await multiSig.threshold()).to.equal(3);
     });
 
-    it("should reduce threshold when signer removed", async function () {
+    it("should keep threshold unchanged when signer removed", async function () {
       await multiSig
         .connect(Signer1)
         .submit(Signer3.address, ethers.ZeroAddress, 0, TX.REMOVE_SIGNER);
@@ -525,7 +530,29 @@ describe("multisig", function () {
 
       await multiSig.execute(0);
 
-      expect(await multiSig.threshold()).to.be.lte(2);
+      expect(await multiSig.threshold()).to.equal(2);
+    });
+
+    it("should revert removal if it would brick the wallet", async function () {
+      // First raise threshold to 3 (equal to signer count)
+      await multiSig
+        .connect(Signer1)
+        .submit(ethers.ZeroAddress, ethers.ZeroAddress, 3, TX.THRESHOLD);
+      await multiSig.connect(Signer2).confirm(0);
+      await multiSig.connect(Signer3).confirm(0);
+      await multiSig.execute(0);
+
+      // Now try to remove a signer (3 signers, threshold 3 -> would leave 2 < 3)
+      await multiSig
+        .connect(Signer1)
+        .submit(Signer3.address, ethers.ZeroAddress, 0, TX.REMOVE_SIGNER);
+      await multiSig.connect(Signer2).confirm(1);
+      await multiSig.connect(Signer3).confirm(1);
+
+      await expect(multiSig.execute(1)).to.be.revertedWithCustomError(
+        multiSig,
+        "RemovalWouldBrickWallet",
+      );
     });
   });
 
@@ -590,7 +617,7 @@ describe("multisig", function () {
       it("should mark transaction as executed", async function () {
         await multiSig.execute(0);
         const tx = await multiSig.transactions(0);
-        expect(tx.state).to.equal(2); // States.EXECUTED
+        expect(tx.state).to.equal(STATE.EXECUTED);
       });
 
       it("should revert if already executed", async function () {
@@ -641,7 +668,7 @@ describe("multisig", function () {
       it("should mark transaction as executed", async function () {
         await multiSig.execute(0);
         const tx = await multiSig.transactions(0);
-        expect(tx.state).to.equal(2); // States.EXECUTED
+        expect(tx.state).to.equal(STATE.EXECUTED);
       });
     });
 
@@ -661,7 +688,7 @@ describe("multisig", function () {
       it("should mark transaction as executed", async function () {
         await multiSig.execute(0);
         const tx = await multiSig.transactions(0);
-        expect(tx.state).to.equal(2);
+        expect(tx.state).to.equal(STATE.EXECUTED);
       });
     });
 
@@ -681,7 +708,7 @@ describe("multisig", function () {
       it("should mark transaction as executed", async function () {
         await multiSig.execute(0);
         const tx = await multiSig.transactions(0);
-        expect(tx.state).to.equal(2);
+        expect(tx.state).to.equal(STATE.EXECUTED);
       });
     });
 
@@ -701,7 +728,7 @@ describe("multisig", function () {
       it("should mark transaction as executed", async function () {
         await multiSig.execute(0);
         const tx = await multiSig.transactions(0);
-        expect(tx.state).to.equal(2);
+        expect(tx.state).to.equal(STATE.EXECUTED);
       });
     });
 

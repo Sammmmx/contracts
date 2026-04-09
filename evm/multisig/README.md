@@ -1,13 +1,17 @@
-# Sample Hardhat Project
+# Multisig Wallet
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+A multi-signature wallet contract supporting ETH and ERC20 token transfers with signer management and threshold governance.
 
-Try running some of the following tasks:
+## Setup
 
 ```shell
-npx hardhat help
+npm install
+```
+
+## Usage
+
+```shell
+npx hardhat compile
 npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
 npx hardhat ignition deploy ./ignition/modules/multisigDeploy.ts
 ```
