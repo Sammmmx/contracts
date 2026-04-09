@@ -27,7 +27,6 @@ describe("multisig", function () {
   let Signer3: HardhatEthersSigner;
   let Account1: HardhatEthersSigner;
   let Account2: HardhatEthersSigner;
-  let Account3: HardhatEthersSigner;
 
   let token: TokenERC20;
   const NAME = "MyToken";
@@ -35,8 +34,7 @@ describe("multisig", function () {
   const MAX_SUPPLY = ethers.parseEther("1000000");
 
   beforeEach(async function () {
-    [Signer1, Signer2, Signer3, Account1, Account2, Account3] =
-      await ethers.getSigners();
+    [Signer1, Signer2, Signer3, Account1, Account2] = await ethers.getSigners();
 
     const MultiSig = await ethers.getContractFactory("Multisig");
     multiSig = (await MultiSig.deploy(
