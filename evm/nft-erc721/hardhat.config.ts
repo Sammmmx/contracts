@@ -1,18 +1,14 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import * as dotenv from "dotenv";
-
 dotenv.config();
 
-const { ALCHEMY_URL, PRIVATE_KEY, ETHERSCAN_API_KEY } = process.env;
-
-// Fail fast for deployment-critical values
-if (!ALCHEMY_URL) {
-  throw new Error("ALCHEMY_SEPOLIA_URL not set in .env");
-}
-
-if (!PRIVATE_KEY) {
-  throw new Error("PRIVATE_KEY not set in .env");
+const isLocalNetwork = !process.env.ALCHEMY_URL;
+if (!isLocalNetwork) {
+  if (!process.env.ALCHEMY_URL) throw new Error("ALCHEMY_URL not set");
+  if (!process.env.PRIVATE_KEY) throw new Error("PRIVATE_KEY not set");
+  if (!process.env.ETHERSCAN_API_KEY)
+    throw new Error("ETHERSCAN_API_KEY not set");
 }
 
 const config: HardhatUserConfig = {
@@ -26,20 +22,21 @@ const config: HardhatUserConfig = {
       },
     },
   },
-
   networks: {
-    sepolia: {
-      url: ALCHEMY_URL,
-      accounts: [PRIVATE_KEY],
-    },
+    ...(isLocalNetwork
+      ? {}
+      : {
+          sepolia: {
+            url: process.env.ALCHEMY_URL!,
+            accounts: [process.env.PRIVATE_KEY!],
+          },
+        }),
   },
-
-  etherscan: {
-    apiKey: ETHERSCAN_API_KEY || "", // optional (only needed for verification)
-  },
-
   paths: {
     sources: "./src",
+  },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY,
   },
 };
 
