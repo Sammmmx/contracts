@@ -144,9 +144,9 @@ describe("NFT721", function () {
         .withArgs(alice.address);
     });
 
-    it("should emit event _newDefaultRoyalty", async function () {
-      expect(await nft.setDefaultRoyalty(bob.address, "500"))
-        .to.emit(nft, "_newDefaultRoyalty")
+    it("should emit event DefaultRoyaltyUpdate", async function () {
+      await expect(nft.setDefaultRoyalty(bob.address, "500"))
+        .to.emit(nft, "DefaultRoyaltyUpdate")
         .withArgs(bob.address, "500");
     });
   });

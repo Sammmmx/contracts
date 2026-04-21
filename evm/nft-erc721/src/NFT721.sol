@@ -12,7 +12,6 @@ error NullAddress();
 error InvalidFee(uint256 _fee);
 error NoURI();
 
-//Deployed on Sepolia Testnet with contract address -> 0xC71C2E01AbC2FCc9F8E161aDe4C84A132be431d4
 
 contract NFT721 is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable {
     /// @dev Tracks the next token ID to be minted
@@ -21,7 +20,7 @@ contract NFT721 is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable 
     /// @notice Emitted when default royalty is updated
     /// @param _royaltyReceiver Address receiving royalty
     /// @param _feeNumerator Royalty fee in basis points
-    event _newDefaultRoyalty(address _royaltyReceiver, uint96 _feeNumerator);
+    event DefaultRoyaltyUpdate(address _royaltyReceiver, uint96 _feeNumerator);
 
     /// @dev Ensures royalty fee is within valid range (<= 10000 basis points)
     /// @param _fee Royalty fee in basis points
@@ -67,6 +66,10 @@ contract NFT721 is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable 
         returns (uint256)
     {
         if(bytes(uri).length == 0) revert NoURI();
+        if(royaltyReceiver == address(0)) {
+            if(feeNumerator > 0) revert InvalidFee(feeNumerator);
+        }
+           
 
         uint256 tokenId = _nextTokenId++;
         _safeMint(to, tokenId);
@@ -93,7 +96,7 @@ contract NFT721 is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable 
         if(royaltyReceiver == address(0)) revert NullAddress();
 
         _setDefaultRoyalty(royaltyReceiver, feeNumerator);
-        emit _newDefaultRoyalty(royaltyReceiver, feeNumerator);
+        emit DefaultRoyaltyUpdate(royaltyReceiver, feeNumerator);
     }
 
     /// @dev Handles ownership updates for transfers, minting, and burning

@@ -1,5 +1,5 @@
 {
-  "name": "hardhat-project",
+  "name": "nft-erc721",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "hardhat": "^2.28.6"
