@@ -5,7 +5,6 @@ dotenv.config();
 
 const isLocalNetwork = !process.env.ALCHEMY_URL;
 if (!isLocalNetwork) {
-  if (!process.env.ALCHEMY_URL) throw new Error("ALCHEMY_URL not set");
   if (!process.env.PRIVATE_KEY) throw new Error("PRIVATE_KEY not set");
   if (!process.env.ETHERSCAN_API_KEY)
     throw new Error("ETHERSCAN_API_KEY not set");
