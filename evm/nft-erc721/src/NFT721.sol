@@ -25,7 +25,7 @@ contract NFT721 is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable 
     /// @dev Ensures royalty fee is within valid range (<= 10000 basis points)
     /// @param _fee Royalty fee in basis points
     modifier checkFee(uint96 _fee) {
-        if(_fee > 10000) revert InvalidFee(_fee);
+        if (_fee > 10000) revert InvalidFee(_fee);
         _;
     }
 
@@ -65,17 +65,16 @@ contract NFT721 is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable 
         checkFee(feeNumerator)
         returns (uint256)
     {
-        if(bytes(uri).length == 0) revert NoURI();
-        if(royaltyReceiver == address(0)) {
-            if(feeNumerator > 0) revert InvalidFee(feeNumerator);
+        if (bytes(uri).length == 0) revert NoURI();
+        if (royaltyReceiver == address(0)) {
+            if (feeNumerator > 0) revert InvalidFee(feeNumerator);
         }
-           
 
         uint256 tokenId = _nextTokenId++;
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, uri);
 
-        if(royaltyReceiver != address(0)){
+        if (royaltyReceiver != address(0)) {
             _setTokenRoyalty(tokenId, royaltyReceiver, feeNumerator);
         }
 
@@ -93,7 +92,7 @@ contract NFT721 is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable 
         checkFee(feeNumerator)
         onlyOwner
     {
-        if(royaltyReceiver == address(0)) revert NullAddress();
+        if (royaltyReceiver == address(0)) revert NullAddress();
 
         _setDefaultRoyalty(royaltyReceiver, feeNumerator);
         emit DefaultRoyaltyUpdate(royaltyReceiver, feeNumerator);
