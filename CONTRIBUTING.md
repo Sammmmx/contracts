@@ -39,6 +39,31 @@ solana/your-program/
 └── .learn.md      # Educational explanation
 ```
 
+## Local development
+
+### EVM (Hardhat)
+
+```bash
+cd evm/token-erc20
+npm install
+npx hardhat compile
+npx hardhat test
+```
+
+### EVM (Foundry)
+
+```bash
+# Install Foundry: https://getfoundry.sh
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+
+cd evm/your-contract
+forge build
+forge test -vvv
+```
+
+Each template is self-contained — `cd` into the template directory and follow its toolchain.
+
 ## Guidelines
 
 - Security first — document all assumptions and attack vectors
