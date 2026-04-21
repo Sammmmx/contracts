@@ -96,8 +96,9 @@ describe("NFT721", function () {
     });
 
     it("should allow minting with 0 royalty fee", async function () {
-      await expect(nft.safeMint(alice.address, TOKEN_URI, alice.address, 0)).to
-        .not.be.reverted;
+      await expect(
+        nft.safeMint(alice.address, TOKEN_URI, ethers.ZeroAddress, 0),
+      ).to.not.be.reverted;
     });
 
     it("should revert if custom royalty fee exceeds 100%", async function () {
@@ -144,9 +145,9 @@ describe("NFT721", function () {
         .withArgs(alice.address);
     });
 
-    it("should emit event _newDefaultRoyalty", async function () {
-      expect(await nft.setDefaultRoyalty(bob.address, "500"))
-        .to.emit(nft, "_newDefaultRoyalty")
+    it("should emit event DefaultRoyaltyUpdate", async function () {
+      await expect(nft.setDefaultRoyalty(bob.address, "500"))
+        .to.emit(nft, "DefaultRoyaltyUpdate")
         .withArgs(bob.address, "500");
     });
   });
