@@ -1,13 +1,40 @@
-# Sample Hardhat Project
+# NFT ERC-721
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+A production-ready ERC-721 NFT contract built with Solidity and Hardhat.
 
-Try running some of the following tasks:
+## What's inside
 
-```shell
-npx hardhat help
+- ERC-721 with Metadata URI and Enumerable extension
+- Royalties via ERC-2981
+- Hardhat test suite
+- Deploy script for Sepolia
+
+## Setup
+
+```bash
+npm install
+```
+
+## Test
+
+```bash
 npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat ignition deploy ./ignition/modules/Lock.ts
+```
+
+## Deploy
+
+```bash
+npx hardhat ignition deploy igniton/modules/NFT721Deploy.ts --network sepolia
+```
+
+## Learn
+
+See [.learn.md](./.learn.md) for a breakdown of the ERC-721 standard, metadata patterns, and royalty enforcement.
+
+## Stack
+
+Solidity | Hardhat | OpenZeppelin | Ethers.js | TypeScript
+
+```
+
 ```
