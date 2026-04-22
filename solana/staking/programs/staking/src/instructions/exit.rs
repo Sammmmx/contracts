@@ -65,7 +65,6 @@ pub fn handler(ctx: Context<Exit>) -> Result<()> {
     let staked = user_stake.balance;
     require!(staked > 0, StakingError::NothingStaked);
 
-    // Withdraw
     pool.total_staked = pool
         .total_staked
         .checked_sub(staked)
@@ -98,7 +97,6 @@ pub fn handler(ctx: Context<Exit>) -> Result<()> {
         amount: staked,
     });
 
-    // Claim
     let reward = user_stake.rewards_earned;
     if reward > 0 {
         user_stake.rewards_earned = 0;

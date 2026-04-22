@@ -146,7 +146,6 @@ describe("Staking", () => {
     user: Keypair,
     amount: BN,
     poolPda: PublicKey,
-    stakingMint: PublicKey,
     stakingVault: PublicKey,
     userStakingAta: PublicKey
   ) {
@@ -207,10 +206,14 @@ describe("Staking", () => {
   // ---- setup ----
 
   before(async () => {
-    await connection.requestAirdrop(alice.publicKey, 10 * LAMPORTS_PER_SOL);
-    await connection.requestAirdrop(bob.publicKey, 10 * LAMPORTS_PER_SOL);
-    // Wait for airdrops to confirm
-    await sleep(1000);
+    const [aliceSig, bobSig] = await Promise.all([
+      connection.requestAirdrop(alice.publicKey, 10 * LAMPORTS_PER_SOL),
+      connection.requestAirdrop(bob.publicKey, 10 * LAMPORTS_PER_SOL),
+    ]);
+    await Promise.all([
+      connection.confirmTransaction(aliceSig),
+      connection.confirmTransaction(bobSig),
+    ]);
   });
 
   // ------------------------------------------------------------------
@@ -282,7 +285,6 @@ describe("Staking", () => {
           .rpc();
         expect.fail("should have thrown");
       } catch (err: any) {
-        // Rejected: same mint produces identical vault ATAs, blocked at runtime
         expect(err).to.exist;
       }
     });
@@ -322,7 +324,7 @@ describe("Staking", () => {
 
     it("stakes tokens and updates user balance", async () => {
       const amount = new BN(100_000);
-      await stakeTokens(alice, amount, poolPda, stakingMint, stakingVault, aliceAta);
+      await stakeTokens(alice, amount, poolPda, stakingVault, aliceAta);
 
       const [userStakePda] = getUserStakePda(poolPda, alice.publicKey);
       const userStake = await fetchUserStake(userStakePda);
@@ -345,7 +347,6 @@ describe("Staking", () => {
           alice,
           new BN(0),
           poolPda,
-          stakingMint,
           stakingVault,
           aliceAta
         );
@@ -356,7 +357,7 @@ describe("Staking", () => {
     });
 
     it("supports multiple users staking", async () => {
-      await stakeTokens(bob, new BN(200_000), poolPda, stakingMint, stakingVault, bobAta);
+      await stakeTokens(bob, new BN(200_000), poolPda, stakingVault, bobAta);
 
       const pool = await fetchPool(poolPda);
       expect(pool.totalStaked.toNumber()).to.equal(300_000);
@@ -367,7 +368,7 @@ describe("Staking", () => {
     });
 
     it("accumulates multiple stakes from the same user", async () => {
-      await stakeTokens(alice, new BN(50_000), poolPda, stakingMint, stakingVault, aliceAta);
+      await stakeTokens(alice, new BN(50_000), poolPda, stakingVault, aliceAta);
 
       const [userStakePda] = getUserStakePda(poolPda, alice.publicKey);
       const userStake = await fetchUserStake(userStakePda);
@@ -398,7 +399,7 @@ describe("Staking", () => {
         rewardMint,
         10_000_000
       ));
-      await stakeTokens(alice, new BN(500_000), poolPda, stakingMint, stakingVault, aliceAta);
+      await stakeTokens(alice, new BN(500_000), poolPda, stakingVault, aliceAta);
     });
 
     it("withdraws tokens and updates balances", async () => {
@@ -509,11 +510,9 @@ describe("Staking", () => {
     before(async () => {
       ({ stakingMint, rewardMint } = await createTestMints());
       ({ poolPda, rewardVault } = await initializePool(stakingMint, rewardMint));
-      // Fund reward vault
       await mintTo(connection, payer, rewardMint, rewardVault, payer, 10_000_000);
     });
 
-    // Error tests first (no active period yet)
     it("reverts for non-authority", async () => {
       try {
         await program.methods
@@ -563,7 +562,6 @@ describe("Staking", () => {
       }
     });
 
-    // Happy path + period-active test
     it("configures reward period", async () => {
       await program.methods
         .configureReward(new BN(1_000_000), new BN(1000))
@@ -579,7 +577,6 @@ describe("Staking", () => {
     });
 
     it("reverts when period not finished", async () => {
-      // Previous test started a 1000s period, so this should fail
       try {
         await program.methods
           .configureReward(new BN(100_000), new BN(50))
@@ -608,7 +605,7 @@ describe("Staking", () => {
       );
       const { stakingAta } = await setupUser(alice, stakingMint, rewardMint, 10_000_000);
 
-      await stakeTokens(alice, new BN(100_000), poolPda, stakingMint, stakingVault, stakingAta);
+      await stakeTokens(alice, new BN(100_000), poolPda, stakingVault, stakingAta);
       await fundVaultAndConfigure(rewardMint, rewardVault, poolPda, new BN(1_000_000), new BN(10));
 
       // Wait ~5 seconds (half the period)
@@ -616,7 +613,7 @@ describe("Staking", () => {
 
       // Trigger reward update by staking a tiny amount
       await mintTo(connection, payer, stakingMint, stakingAta, payer, 1);
-      await stakeTokens(alice, new BN(1), poolPda, stakingMint, stakingVault, stakingAta);
+      await stakeTokens(alice, new BN(1), poolPda, stakingVault, stakingAta);
 
       const [userStakePda] = getUserStakePda(poolPda, alice.publicKey);
       const userStake = await fetchUserStake(userStakePda);
@@ -635,7 +632,7 @@ describe("Staking", () => {
       );
       const { stakingAta } = await setupUser(alice, stakingMint, rewardMint, 10_000_000);
 
-      await stakeTokens(alice, new BN(100_000), poolPda, stakingMint, stakingVault, stakingAta);
+      await stakeTokens(alice, new BN(100_000), poolPda, stakingVault, stakingAta);
       await fundVaultAndConfigure(rewardMint, rewardVault, poolPda, new BN(1_000_000), new BN(5));
 
       // Wait for full period + buffer
@@ -643,7 +640,7 @@ describe("Staking", () => {
 
       // Trigger update
       await mintTo(connection, payer, stakingMint, stakingAta, payer, 1);
-      await stakeTokens(alice, new BN(1), poolPda, stakingMint, stakingVault, stakingAta);
+      await stakeTokens(alice, new BN(1), poolPda, stakingVault, stakingAta);
 
       const [userStakePda] = getUserStakePda(poolPda, alice.publicKey);
       const userStake = await fetchUserStake(userStakePda);
@@ -676,8 +673,8 @@ describe("Staking", () => {
       );
 
       // Alice and Bob stake equal amounts
-      await stakeTokens(alice, new BN(100_000), poolPda, stakingMint, stakingVault, aliceAta);
-      await stakeTokens(bob, new BN(100_000), poolPda, stakingMint, stakingVault, bobAta);
+      await stakeTokens(alice, new BN(100_000), poolPda, stakingVault, aliceAta);
+      await stakeTokens(bob, new BN(100_000), poolPda, stakingVault, bobAta);
 
       await fundVaultAndConfigure(rewardMint, rewardVault, poolPda, new BN(1_000_000), new BN(5));
 
@@ -686,9 +683,9 @@ describe("Staking", () => {
 
       // Trigger updates for both
       await mintTo(connection, payer, stakingMint, aliceAta, payer, 1);
-      await stakeTokens(alice, new BN(1), poolPda, stakingMint, stakingVault, aliceAta);
+      await stakeTokens(alice, new BN(1), poolPda, stakingVault, aliceAta);
       await mintTo(connection, payer, stakingMint, bobAta, payer, 1);
-      await stakeTokens(bob, new BN(1), poolPda, stakingMint, stakingVault, bobAta);
+      await stakeTokens(bob, new BN(1), poolPda, stakingVault, bobAta);
 
       const [aliceStakePda] = getUserStakePda(poolPda, alice.publicKey);
       const [bobStakePda] = getUserStakePda(poolPda, bob.publicKey);
@@ -716,7 +713,7 @@ describe("Staking", () => {
       );
       const { stakingAta } = await setupUser(alice, stakingMint, rewardMint, 10_000_000);
 
-      await stakeTokens(alice, new BN(100_000), poolPda, stakingMint, stakingVault, stakingAta);
+      await stakeTokens(alice, new BN(100_000), poolPda, stakingVault, stakingAta);
       await fundVaultAndConfigure(rewardMint, rewardVault, poolPda, new BN(1_000_000), new BN(3));
 
       // Wait well past the period end
@@ -724,7 +721,7 @@ describe("Staking", () => {
 
       // Trigger first update
       await mintTo(connection, payer, stakingMint, stakingAta, payer, 1);
-      await stakeTokens(alice, new BN(1), poolPda, stakingMint, stakingVault, stakingAta);
+      await stakeTokens(alice, new BN(1), poolPda, stakingVault, stakingAta);
 
       const [userStakePda] = getUserStakePda(poolPda, alice.publicKey);
       const earned1 = (await fetchUserStake(userStakePda)).rewardsEarned.toNumber();
@@ -734,7 +731,7 @@ describe("Staking", () => {
 
       // Trigger second update
       await mintTo(connection, payer, stakingMint, stakingAta, payer, 1);
-      await stakeTokens(alice, new BN(1), poolPda, stakingMint, stakingVault, stakingAta);
+      await stakeTokens(alice, new BN(1), poolPda, stakingVault, stakingAta);
 
       const earned2 = (await fetchUserStake(userStakePda)).rewardsEarned.toNumber();
 
@@ -757,7 +754,7 @@ describe("Staking", () => {
 
       // Now stake — should not get retroactive rewards
       const { stakingAta } = await setupUser(alice, stakingMint, rewardMint, 10_000_000);
-      await stakeTokens(alice, new BN(100_000), poolPda, stakingMint, stakingVault, stakingAta);
+      await stakeTokens(alice, new BN(100_000), poolPda, stakingVault, stakingAta);
 
       const [userStakePda] = getUserStakePda(poolPda, alice.publicKey);
       const userStake = await fetchUserStake(userStakePda);
@@ -790,7 +787,6 @@ describe("Staking", () => {
         alice,
         new BN(100_000),
         poolPda,
-        stakingMint,
         stakingVault,
         aliceStakingAta
       );
@@ -883,7 +879,6 @@ describe("Staking", () => {
         alice,
         new BN(100_000),
         poolPda,
-        stakingMint,
         stakingVault,
         aliceStakingAta
       );

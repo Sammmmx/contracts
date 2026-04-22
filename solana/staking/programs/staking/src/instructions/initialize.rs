@@ -57,11 +57,6 @@ pub fn handler(ctx: Context<Initialize>) -> Result<()> {
     pool.reward_mint = ctx.accounts.reward_mint.key();
     pool.staking_vault = ctx.accounts.staking_vault.key();
     pool.reward_vault = ctx.accounts.reward_vault.key();
-    pool.reward_rate = 0;
-    pool.period_finish = 0;
-    pool.last_update_time = 0;
-    pool.reward_per_token_stored = 0;
-    pool.total_staked = 0;
     pool.bump = ctx.bumps.pool;
 
     Ok(())

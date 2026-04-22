@@ -51,7 +51,6 @@ pub fn handler(ctx: Context<Stake>, amount: u64) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     let user_stake = &mut ctx.accounts.user_stake;
 
-    // Initialize user_stake fields on first use
     if user_stake.pool == Pubkey::default() {
         user_stake.pool = pool.key();
         user_stake.owner = ctx.accounts.user.key();

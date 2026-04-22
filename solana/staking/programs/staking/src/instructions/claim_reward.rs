@@ -1,13 +1,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
+use crate::error::StakingError;
 use crate::events;
 use crate::state::{PoolState, UserStake};
 use crate::update_reward;
 
 #[derive(Accounts)]
 pub struct ClaimReward<'info> {
-    #[account(mut)]
     pub user: Signer<'info>,
 
     #[account(
@@ -21,6 +21,7 @@ pub struct ClaimReward<'info> {
         mut,
         seeds = [b"user_stake", pool.key().as_ref(), user.key().as_ref()],
         bump = user_stake.bump,
+        constraint = user_stake.owner == user.key() @ StakingError::Unauthorized,
     )]
     pub user_stake: Account<'info, UserStake>,
 

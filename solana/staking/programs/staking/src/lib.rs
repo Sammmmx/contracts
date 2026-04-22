@@ -20,7 +20,6 @@ declare_id!("3EruC8kPD8NoNZarPFFN3wb4fKbQ48b4cFX4DjhNg9Xw");
 
 const PRECISION: u128 = 1_000_000_000_000_000_000; // 1e18
 
-/// Port of the Solidity `updateReward` modifier.
 pub fn update_reward(
     pool: &mut state::PoolState,
     user_stake: Option<&mut state::UserStake>,
@@ -79,7 +78,7 @@ fn earned(pool: &state::PoolState, stake: &state::UserStake) -> Result<u64> {
         .checked_add(pending)
         .ok_or(error::StakingError::MathOverflow)?;
 
-    Ok(total as u64)
+    u64::try_from(total).map_err(|_| error!(error::StakingError::MathOverflow))
 }
 
 #[program]
