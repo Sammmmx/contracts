@@ -12,6 +12,7 @@ error ZeroDuration();
 error RewardPeriodNotFinished();
 error InsufficientRewardBalance();
 error NothingStaked();
+error InsufficientStake();
 
 /// @title Staking
 /// @notice Stake ERC-20 tokens to earn ERC-20 reward tokens over time.
@@ -25,7 +26,6 @@ contract Staking is Ownable, ReentrancyGuard {
 
     // Reward state
     uint256 public rewardRate;
-    uint256 public rewardDuration;
     uint256 public periodFinish;
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
@@ -92,7 +92,7 @@ contract Staking is Ownable, ReentrancyGuard {
     /// @notice Withdraw `amount` of the staking token.
     function withdraw(uint256 amount) external nonReentrant updateReward(msg.sender) {
         if (amount == 0) revert ZeroAmount();
-        if (balanceOf[msg.sender] == 0) revert NothingStaked();
+        if (amount > balanceOf[msg.sender]) revert InsufficientStake();
         totalStaked -= amount;
         balanceOf[msg.sender] -= amount;
         stakingToken.safeTransfer(msg.sender, amount);
@@ -114,13 +114,11 @@ contract Staking is Ownable, ReentrancyGuard {
         uint256 staked = balanceOf[msg.sender];
         if (staked == 0) revert NothingStaked();
 
-        // Withdraw
         totalStaked -= staked;
         balanceOf[msg.sender] = 0;
         stakingToken.safeTransfer(msg.sender, staked);
         emit Withdrawn(msg.sender, staked);
 
-        // Claim
         uint256 reward = rewards[msg.sender];
         if (reward > 0) {
             rewards[msg.sender] = 0;
@@ -145,7 +143,6 @@ contract Staking is Ownable, ReentrancyGuard {
         if (balance < rewardAmount) revert InsufficientRewardBalance();
 
         rewardRate = rewardAmount / duration;
-        rewardDuration = duration;
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp + duration;
 
@@ -160,7 +157,8 @@ contract Staking is Ownable, ReentrancyGuard {
         rewardPerTokenStored = rewardPerToken();
         lastUpdateTime = lastTimeRewardApplicable();
         if (account != address(0)) {
-            rewards[account] = earned(account);
+            rewards[account] = (balanceOf[account] * (rewardPerTokenStored - userRewardPerTokenPaid[account])) / 1e18
+                + rewards[account];
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
         }
         _;

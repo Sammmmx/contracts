@@ -199,7 +199,13 @@ describe("Staking", function () {
     it("should revert if user has nothing staked", async function () {
       await expect(
         staking.connect(bob).withdraw(STAKE_AMOUNT),
-      ).to.be.revertedWithCustomError(staking, "NothingStaked");
+      ).to.be.revertedWithCustomError(staking, "InsufficientStake");
+    });
+
+    it("should revert if withdrawing more than staked", async function () {
+      await expect(
+        staking.connect(alice).withdraw(STAKE_AMOUNT * 2n),
+      ).to.be.revertedWithCustomError(staking, "InsufficientStake");
     });
 
     it("should allow partial withdrawal", async function () {
@@ -221,7 +227,6 @@ describe("Staking", function () {
       expect(await staking.rewardRate()).to.equal(
         REWARD_AMOUNT / BigInt(REWARD_DURATION),
       );
-      expect(await staking.rewardDuration()).to.equal(REWARD_DURATION);
     });
 
     it("should emit RewardConfigured event", async function () {
@@ -257,6 +262,17 @@ describe("Staking", function () {
       await expect(
         staking.configureReward(REWARD_AMOUNT, REWARD_DURATION),
       ).to.be.revertedWithCustomError(staking, "RewardPeriodNotFinished");
+    });
+
+    it("should allow re-configuring after period ends", async function () {
+      await fundAndConfigureReward();
+      await time.increase(REWARD_DURATION);
+
+      await rewardToken.mint(owner.address, REWARD_AMOUNT);
+      await rewardToken.transfer(await staking.getAddress(), REWARD_AMOUNT);
+      await expect(
+        staking.configureReward(REWARD_AMOUNT, REWARD_DURATION),
+      ).to.not.be.reverted;
     });
   });
 
