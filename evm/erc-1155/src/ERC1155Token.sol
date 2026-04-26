@@ -28,7 +28,7 @@ contract ERC1155Token is ERC1155, AccessControl {
     /// @dev Applied to each constructor argument individually.
     /// @param input The address to validate.
     modifier checkAddress(address input) {
-        if(input == address(0)) revert ZeroAddress();
+        if (input == address(0)) revert ZeroAddress();
         _;
     }
 
@@ -38,7 +38,7 @@ contract ERC1155Token is ERC1155, AccessControl {
     /// @param input1 The first address to compare.
     /// @param input2 The second address to compare.
     modifier checkRoles(address input1, address input2) {
-        if(input1 == input2) revert RolesNotSeparated();
+        if (input1 == input2) revert RolesNotSeparated();
         _;
     }
 
@@ -70,7 +70,7 @@ contract ERC1155Token is ERC1155, AccessControl {
     /// Reverts with `EmptyURI` if an empty string is provided.
     /// @param newuri The new base URI string to set.
     function setURI(string memory newuri) public onlyRole(URI_SETTER_ROLE) {
-        if(bytes(newuri).length == 0) revert EmptyURI();
+        if (bytes(newuri).length == 0) revert EmptyURI();
         _setURI(newuri);
     }
 

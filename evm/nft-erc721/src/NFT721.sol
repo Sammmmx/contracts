@@ -1,157 +1,97 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.27;
+// Compatible with OpenZeppelin Contracts ^5.6.0
+pragma solidity 0.8.26;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import {ERC2981} from "@openzeppelin/contracts/token/common/ERC2981.sol";
-import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 
+error EmptyURI();
+error ZeroAddress();
+error RolesNotSeparated();
 
-error NullAddress();
-error InvalidFee(uint256 _fee);
-error NoURI();
+contract ERC1155Token is ERC1155, AccessControl {
+    /// @notice Role identifier for accounts permitted to update the token metadata URI
+    bytes32 public constant URI_SETTER_ROLE = keccak256("URI_SETTER_ROLE");
 
+    /// @notice Role identifier for accounts permitted to mint tokens
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-contract NFT721 is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable {
-    /// @dev Tracks the next token ID to be minted
-    uint256 private _nextTokenId;
-
-    /// @notice Emitted when default royalty is updated
-    /// @param _royaltyReceiver Address receiving royalty
-    /// @param _feeNumerator Royalty fee in basis points
-    event DefaultRoyaltyUpdate(address _royaltyReceiver, uint96 _feeNumerator);
-
-    /// @dev Ensures royalty fee is within valid range (<= 10000 basis points)
-    /// @param _fee Royalty fee in basis points
-    modifier checkFee(uint96 _fee) {
-        if(_fee > 10000) revert InvalidFee(_fee);
+    /// @dev Ensures the provided address is not the zero address
+    /// @param input The address to validate
+    modifier checkAddress(address input) {
+        if(input == address(0)) revert ZeroAddress();
         _;
     }
 
-    /// @notice Initializes the NFT contract
-    /// @param name Name of the NFT collection
-    /// @param symbol Symbol of the NFT collection
-    /// @param initialOwner Address that will own the contract
-    /// @param defaultFee Default royalty fee in basis points (10000 = 100%)
-    constructor(
-        string memory name,
-        string memory symbol,
-        address initialOwner,
-        uint96 defaultFee
-    )
-        ERC721(name, symbol)
-        Ownable(initialOwner)
-        checkFee(defaultFee)
-    {
-        _setDefaultRoyalty(initialOwner, defaultFee);
+    /// @dev Ensures two role addresses are not identical
+    /// @param input1 The first address to compare
+    /// @param input2 The second address to compare
+    modifier checkRoles(address input1, address input2) {
+        if(input1 == input2) revert RolesNotSeparated();
+        _;
     }
 
-    /// @notice Mints a new NFT
-    /// @dev Uses safe minting to prevent tokens from being locked in contracts
-    /// @param to Address receiving the NFT
-    /// @param uri Metadata URI of the NFT
-    /// @param royaltyReceiver Address receiving royalties (optional)
-    /// @param feeNumerator Royalty fee in basis points
-    /// @return tokenId The ID of the newly minted token
-    function safeMint(
-        address to,
-        string memory uri,
-        address royaltyReceiver,
-        uint96 feeNumerator
-    )
+    /// @notice Deploys the ERC1155Token contract and assigns all three roles
+    /// @param defaultAdmin Address granted DEFAULT_ADMIN_ROLE
+    /// @param minter Address granted MINTER_ROLE
+    /// @param uriSetter Address granted URI_SETTER_ROLE
+    constructor(address defaultAdmin, address minter, address uriSetter) 
+    ERC1155("") 
+    checkAddress(defaultAdmin) 
+    checkAddress(minter) 
+    checkAddress(uriSetter)
+    checkRoles(defaultAdmin, minter)
+    checkRoles(defaultAdmin, uriSetter)
+    checkRoles(minter, uriSetter) {
+        _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
+        _grantRole(MINTER_ROLE, minter);
+        _grantRole(URI_SETTER_ROLE, uriSetter);
+
+    }
+
+    /// @notice Updates the base metadata URI for all token types
+    /// @dev URI should follow ERC-1155 metadata standard where `{id}` is
+    /// substituted by clients with the token ID e.g. "ipfs://QmHash/{id}.json"
+    /// @param newuri The new base URI string to set
+    function setURI(string memory newuri) public onlyRole(URI_SETTER_ROLE) {
+        if(bytes(newuri).length == 0) revert EmptyURI();
+        _setURI(newuri);
+    }
+
+    /// @notice Mints a specified amount of a single token type to an address
+    /// @dev If `account` is a contract it must implement `onERC1155Received`
+    /// @param account Address to receive the minted tokens
+    /// @param id Token ID to mint
+    /// @param amount Quantity of tokens to mint
+    /// @param data Additional data passed to the receiver hook
+    function mint(address account, uint256 id, uint256 amount, bytes memory data)
         public
-        onlyOwner
-        checkFee(feeNumerator)
-        returns (uint256)
+        onlyRole(MINTER_ROLE)
     {
-        if(bytes(uri).length == 0) revert NoURI();
-        if(royaltyReceiver == address(0)) {
-            if(feeNumerator > 0) revert InvalidFee(feeNumerator);
-        }
-           
-
-        uint256 tokenId = _nextTokenId++;
-        _safeMint(to, tokenId);
-        _setTokenURI(tokenId, uri);
-
-        if(royaltyReceiver != address(0)){
-            _setTokenRoyalty(tokenId, royaltyReceiver, feeNumerator);
-        }
-
-        return tokenId;
+        _mint(account, id, amount, data);
     }
 
-    /// @notice Updates the default royalty for all tokens
-    /// @param royaltyReceiver Address receiving royalties
-    /// @param feeNumerator Royalty fee in basis points
-    function setDefaultRoyalty(
-        address royaltyReceiver,
-        uint96 feeNumerator
-    )
+    /// @notice Mints multiple token types to a single address in one transaction
+    /// @dev `ids` and `amounts` must be equal length arrays. If `to` is a contract
+    /// it must implement `onERC1155BatchReceived`
+    /// @param to Address to receive all minted tokens
+    /// @param ids Array of token IDs to mint
+    /// @param amounts Array of quantities corresponding to each token ID
+    /// @param data Additional data passed to the receiver hook
+    function mintBatch(address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data)
         public
-        checkFee(feeNumerator)
-        onlyOwner
+        onlyRole(MINTER_ROLE)
     {
-        if(royaltyReceiver == address(0)) revert NullAddress();
-
-        _setDefaultRoyalty(royaltyReceiver, feeNumerator);
-        emit DefaultRoyaltyUpdate(royaltyReceiver, feeNumerator);
-    }
-
-    /// @dev Handles ownership updates for transfers, minting, and burning
-    /// @param to Address receiving the token
-    /// @param tokenId Token ID being updated
-    /// @param auth Address initiating the update
-    /// @return previousOwner Address of the previous owner
-    function _update(
-        address to,
-        uint256 tokenId,
-        address auth
-    )
-        internal
-        override(ERC721, ERC721Enumerable)
-        returns (address)
-    {
-        return super._update(to, tokenId, auth);
-    }
-
-    /// @dev Updates balance accounting for enumeration
-    /// @param account Address whose balance is updated
-    /// @param value Amount added to balance
-    function _increaseBalance(
-        address account,
-        uint128 value
-    )
-        internal
-        override(ERC721, ERC721Enumerable)
-    {
-        super._increaseBalance(account, value);
-    }
-
-    /// @notice Returns the metadata URI for a token
-    /// @param tokenId Token ID
-    /// @return URI Metadata URI of the token
-    function tokenURI(
-        uint256 tokenId
-    )
-        public
-        view
-        override(ERC721, ERC721URIStorage)
-        returns (string memory)
-    {
-        return super.tokenURI(tokenId);
+        _mintBatch(to, ids, amounts, data);
     }
 
     /// @notice Checks if the contract supports an interface
     /// @param interfaceId Interface identifier
     /// @return True if supported
-    function supportsInterface(
-        bytes4 interfaceId
-    )
+    function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(ERC721, ERC2981, ERC721Enumerable, ERC721URIStorage)
+        override(ERC1155, AccessControl)
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
