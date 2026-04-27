@@ -1,6 +1,6 @@
 # ERC-1155 Multi-Token
 
-A production-ready ERC-1155 multi-token contract built with Solidity and Hardhat.
+A minimal template ERC-1155 multi-token contract built with Solidity and Hardhat.
 
 ## What's inside
 
@@ -25,7 +25,7 @@ npx hardhat test
 ## Deploy
 
 ```bash
-npx hardhat ignition deploy ignition/modules/ERC1155Deploy.ts --network sepolia
+npx hardhat ignition deploy ignition/modules/ERC1155TokenDeploy.ts --network sepolia
 ```
 
 ## Learn
