@@ -25,6 +25,7 @@ error IdenticalAddress();
 error NotAuthorized(address caller);
 error InvalidAddress();
 error AlreadyPending();
+error AlreadyPaused();
 
 /// @title SUBSCRIPTION
 /// @notice A decentralized subscription management contract that handles recurring ERC20 payments between merchants and subscribers.
@@ -361,8 +362,8 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @dev The subscription remains active but the merchant cannot trigger auto renewals while paused.
     /// @param subscriptionID The ID of the subscription plan to pause.
     function pauseRenewal(uint256 subscriptionID) public  
-    checkSubscriber(msg.sender, subscriptionID) 
-    checkPaused(msg.sender, subscriptionID) {
+    checkSubscriber(msg.sender, subscriptionID) {
+        if (Subscribers[msg.sender][subscriptionID].paused) revert AlreadyPaused();
         Subscribers[msg.sender][subscriptionID].paused = true;
 
         emit PausedRenewal(msg.sender, Subscriptions[subscriptionID].merchant, Subscriptions[subscriptionID].name);
@@ -378,6 +379,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     checkSubscriber(msg.sender, subscriptionID) {
         if (!Subscribers[msg.sender][subscriptionID].paused) revert NotPaused();
         Subscribers[msg.sender][subscriptionID].paused = false;
+
         address _merchant = Subscriptions[subscriptionID].merchant;
         string memory _name = Subscriptions[subscriptionID].name;
         if (Subscribers[msg.sender][subscriptionID].nextBillingDate < block.timestamp) {

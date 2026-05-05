@@ -557,7 +557,7 @@ describe("SUBSCRIPTION", function () {
       await subscription.connect(Subscriber1).pauseRenewal(1);
       await expect(
         subscription.connect(Subscriber1).pauseRenewal(1),
-      ).to.be.revertedWithCustomError(subscription, "Paused");
+      ).to.be.revertedWithCustomError(subscription, "AlreadyPaused");
     });
 
     it("should pause renewal successfully", async function () {
