@@ -21,6 +21,10 @@ error PeriodIncomplete();
 error NothingToWithdraw();
 error AlreadyDeactivated();
 error PlanDeactivated();
+error IdenticalAddress();
+error NotAuthorized(address caller);
+error InvalidAddress();
+error AlreadyPending();
 
 /// @title SUBSCRIPTION
 /// @notice A decentralized subscription management contract that handles recurring ERC20 payments between merchants and subscribers.
@@ -31,8 +35,14 @@ contract SUBSCRIPTION is ReentrancyGuard {
 
     // STATE DECLARATIONS
 
+    /// @notice The address of the contract authority responsible for transferring ownership.
+    address public authority;
+
+    /// @notice The address of the new proposed owner of the contract.
+    address pendingOwner;
+
     /// @notice The address of the contract owner responsible for registering merchants.
-    address public immutable owner;
+    address public owner;
 
     /// @notice The ERC20 token used as the payment currency for all subscriptions.
     IERC20 public immutable paymentToken;
@@ -64,7 +74,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @param _address The subscriber address to check.
     /// @param _subscriptionID The subscription plan ID to check against.
     modifier checkPaused(address _address, uint256 _subscriptionID) {
-        if (Subscribers[_address][_subscriptionID].paused == true) revert Paused();
+        if (Subscribers[_address][_subscriptionID].paused) revert Paused();
         _;
     }
 
@@ -79,7 +89,14 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @notice Reverts if the given subscription plan has been deactivated.
     /// @param _subscriptionID The subscription plan ID to check.
     modifier checkDeactivation(uint256 _subscriptionID) {
-        if (Subscriptions[_subscriptionID].deactivated == true) revert PlanDeactivated();
+        if (Subscriptions[_subscriptionID].deactivated) revert PlanDeactivated();
+        _;
+    }
+
+    /// @notice Reverts if given Merchant address is not registered.
+    /// @param _merchant The merchant address to check.
+    modifier checkMerchantRegistration(address _merchant) {
+        if (isMerchant[_merchant] == false) revert UnregisteredMerchant();
         _;
     }
 
@@ -117,6 +134,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
         bool deactivated;
     }
 
+
     // MAPPINGS
 
     /// @notice Maps a subscriber address and plan ID to their subscription details.
@@ -128,53 +146,61 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @notice Tracks whether an address is a registered merchant.
     mapping(address => bool) public isMerchant;
 
+    /// @notice Maps a merchant to its subscriptions tally.
+    mapping(address => uint256[]) public merchantSubscriptions;
+
     //EVENTS
 
     /// @notice Emitted when a subscriber successfully purchases a subscription.
     /// @param _purchaser The address of the subscriber.
     /// @param _merchant The address of the merchant.
     /// @param _name The name of the subscription plan.
-    event SubscriptionsPurchased(address _purchaser, address _merchant, string _name);
+    event SubscriptionsPurchased(address indexed _purchaser, address indexed _merchant, string _name);
 
     /// @notice Emitted when a subscriber cancels their subscription.
     /// @param _subscriber The address of the subscriber.
     /// @param _merchant The address of the merchant.
     /// @param _name The name of the subscription plan.
-    event Cancellations(address _subscriber, address _merchant, string _name);
+    event Cancellations(address indexed _subscriber, address indexed _merchant, string _name);
 
     /// @notice Emitted when a merchant defines a new subscription plan.
     /// @param _merchant The address of the merchant.
     /// @param _name The name of the plan.
     /// @param _duration The billing cycle duration in days.
     /// @param _price The price per billing cycle in payment tokens.
-    event PlansDefined(address _merchant, string _name, uint256 _duration, uint256 _price);
+    event PlansDefined(address indexed _merchant, string _name, uint256 indexed _duration, uint256 indexed _price);
 
     /// @notice Emitted when a new merchant is registered by the owner.
     /// @param _merchant The address of the newly registered merchant.
-    event MerchantRegistered(address _merchant);
+    event MerchantRegistered(address indexed _merchant);
 
     /// @notice Emitted when a subscription is successfully auto renewed.
     /// @param _subscriber The address of the subscriber.
     /// @param _merchant The address of the merchant who triggered the renewal.
     /// @param _name The name of the subscription plan.
-    event AutoRenewals(address _subscriber, address _merchant, string _name);
+    event AutoRenewals(address indexed _subscriber, address indexed _merchant, string _name);
 
     /// @notice Emitted when a subscriber pauses their auto renewal.
     /// @param _subscriber The address of the subscriber.
     /// @param _merchant The address of the merchant.
     /// @param _name The name of the subscription plan.
-    event PausedRenewal(address _subscriber, address _merchant, string _name);
+    event PausedRenewal(address indexed _subscriber, address indexed _merchant, string _name);
 
     /// @notice Emitted when a subscriber resumes their auto renewal.
     /// @param _subscriber The address of the subscriber.
     /// @param _merchant The address of the merchant.
     /// @param _name The name of the subscription plan.
-    event ResumedRenewal(address _subscriber, address _merchant, string _name);
+    event ResumedRenewal(address indexed _subscriber, address indexed _merchant, string _name);
 
     /// @notice Emitted when a merchant deactivates a subscription plan.
     /// @param _merchant The address of the merchant.
     /// @param _subscriptionID The ID of the deactivated plan.
-    event PlansDeactivated(address _merchant, uint256 _subscriptionID);
+    event PlansDeactivated(address indexed _merchant, uint256 indexed _subscriptionID);
+
+    /// @notice Emmited when a withdrawal from a merchant is completed.
+    /// @param _merchant The address of the merchant
+    /// @param _subscriptionsID ID of the subscription the merchant has withdrawn from.
+    event Withdrawals (address indexed _merchant, uint256 indexed _subscriptionsID);
 
     // UNIQUE IDENTIFICATION NUMBERING
 
@@ -186,12 +212,36 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @notice Deploys the subscription contract with a designated owner and payment token.
     /// @param _owner The address of the contract owner who can register merchants.
     /// @param _token The address of the ERC20 token used for payments.
-    constructor(address _owner, address _token) checkAddress(_owner) {
+    constructor(address _authority, address _owner, address _token) 
+    checkAddress(_authority)    
+    checkAddress(_owner) 
+    checkAddress(_token) {
+        if (_authority == _owner) revert IdenticalAddress();
+        authority = _authority;
         owner = _owner;
         paymentToken = IERC20(_token);
     }
 
     // OWNER FUNCTIONS
+
+    /// @notice Initiates transfer of ownership, allowing new proposed owner to accept ownership.
+    /// @dev Only callable by the contract owner and authority. Reverts if the address is zero.
+    /// @param newOwner The new proposed owner.
+    function transferOwnership(address newOwner) public 
+    checkAddress(newOwner) {
+        if (msg.sender != owner && msg.sender != authority) revert NotAuthorized(msg.sender);
+        if (newOwner == owner || newOwner == authority) revert InvalidAddress();
+        if (newOwner == pendingOwner) revert AlreadyPending();
+        pendingOwner = newOwner;
+    }
+
+    /// @notice Completes transfer of ownership to the proposed owner.
+    /// @dev Only callable by pendingOwner. Reverts if the address is not pendingOwner.
+    function acceptOwnership() public {
+        if (msg.sender != pendingOwner) revert NotAuthorized(msg.sender);
+        delete pendingOwner;
+        owner = msg.sender;
+    }
 
     /// @notice Registers a new merchant, allowing them to create subscription plans.
     /// @dev Only callable by the contract owner. Reverts if the address is zero or already registered.
@@ -199,10 +249,29 @@ contract SUBSCRIPTION is ReentrancyGuard {
     function registerMerchant(address _merchant) public 
     onlyOwner()
     checkAddress(_merchant) {
-        if (isMerchant[_merchant] == true) revert AlreadyMerchant(_merchant);
+        if (isMerchant[_merchant]) revert AlreadyMerchant(_merchant);
         isMerchant[_merchant] = true;
 
         emit MerchantRegistered(_merchant);
+    }
+
+    /// @notice Revokes the registration off a merchant. Transferring the pending withdrawals to the merchant.
+    /// @dev Only callable by the contract Owner. Reverts if the address is zero or the merchant is not registered.
+    /// @param _merchant The address of the merchant to be revoked.
+    function revokeMerchant(address _merchant) public 
+    onlyOwner() 
+    checkAddress(_merchant)
+    checkMerchantRegistration(_merchant) {
+        uint256[] memory _subscriptions = merchantSubscriptions[_merchant];
+        for (uint256 i = 0; i < merchantSubscriptions[_merchant].length; i++) {
+            uint256 currentNumber = _subscriptions[i];
+            if (Subscriptions[currentNumber].toWithdraw > 0) {
+                completeWithdrawal(currentNumber, _merchant);
+            }
+            delete Subscriptions[currentNumber];
+        }
+        delete isMerchant[_merchant];
+        delete merchantSubscriptions[_merchant];
     }
 
     // MERCHANT INTERACTIONS
@@ -212,11 +281,12 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @param _name The name of the subscription plan.
     /// @param _duration The billing cycle length in days.
     /// @param _price The cost per billing cycle in payment tokens.
-    function definePlan(string memory _name, uint256 _duration, uint256 _price) public {
-        if (isMerchant[msg.sender] == false) revert UnregisteredMerchant();
+    function definePlan(string memory _name, uint256 _duration, uint256 _price) public 
+    checkMerchantRegistration(msg.sender) {
         if (bytes (_name).length == 0) revert EmptyValue();
         if (_duration == 0) revert EmptyValue();
         if (_price == 0) revert EmptyValue();
+        merchantSubscriptions[msg.sender].push(subscriptionIdCount);
         Subscriptions[subscriptionIdCount] = subscriptionDetails ({
             merchant: msg.sender,
             name: _name,
@@ -236,6 +306,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @param _subscriber The address of the subscriber to renew.
     /// @param subscriptionID The ID of the subscription plan.
     function autoRenewal(address _subscriber, uint256 subscriptionID) public 
+    nonReentrant()
     checkDeactivation(subscriptionID)
     checkMerchant(subscriptionID, msg.sender) 
     checkSubscriber(_subscriber, subscriptionID)
@@ -250,11 +321,11 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @dev Resets the toWithdraw balance to zero before transferring to prevent double withdrawal.
     /// @param subscriptionID The ID of the subscription plan to withdraw earnings from.
     function merchantWithdrawal(uint256 subscriptionID) public 
+    nonReentrant()
     checkMerchant(subscriptionID, msg.sender) {
         uint256 _toWithdraw = Subscriptions[subscriptionID].toWithdraw;
         if(_toWithdraw == 0) revert NothingToWithdraw();
-        Subscriptions[subscriptionID].toWithdraw = 0;
-        IERC20(paymentToken).safeTransfer(msg.sender, _toWithdraw);
+        completeWithdrawal(subscriptionID, msg.sender);
     }
 
     /// @notice Deactivates a subscription plan, preventing new subscriptions and auto renewals.
@@ -262,7 +333,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @param _subscriptionID The ID of the plan to deactivate.
     function deactivatePlan(uint256 _subscriptionID) public 
     checkMerchant(_subscriptionID, msg.sender) {
-        if (Subscriptions[_subscriptionID].deactivated == true) revert AlreadyDeactivated();
+        if (Subscriptions[_subscriptionID].deactivated) revert AlreadyDeactivated();
         Subscriptions[_subscriptionID].deactivated = true;
 
         emit PlansDeactivated(msg.sender, _subscriptionID);
@@ -275,10 +346,12 @@ contract SUBSCRIPTION is ReentrancyGuard {
     ///      Reverts if the plan is deactivated, does not exist, or the caller is already subscribed.
     /// @param subscriptionID The ID of the subscription plan to subscribe to.
     function subscribe(uint256 subscriptionID) public 
+    nonReentrant()
     checkDeactivation(subscriptionID) {
         uint256 _price = Subscriptions[subscriptionID].price;
         if (_price == 0) revert InvalidID();
         if (Subscribers[msg.sender][subscriptionID].amountPaid > 0) revert ExistingPlan();
+        if (paymentToken.balanceOf(msg.sender) < _price) revert InsufficientBalance();
         address _merchant = Subscriptions[subscriptionID].merchant;
         completeSubscription(subscriptionID, msg.sender);
         emit SubscriptionsPurchased(msg.sender, _merchant, Subscriptions[subscriptionID].name);
@@ -300,15 +373,20 @@ contract SUBSCRIPTION is ReentrancyGuard {
     ///      Reverts if the plan has been deactivated.
     /// @param subscriptionID The ID of the subscription plan to resume.
     function resumeRenewal(uint256 subscriptionID) public 
+    nonReentrant()
     checkDeactivation(subscriptionID) 
     checkSubscriber(msg.sender, subscriptionID) {
-        if (Subscribers[msg.sender][subscriptionID].paused == false) revert NotPaused();
+        if (!Subscribers[msg.sender][subscriptionID].paused) revert NotPaused();
         Subscribers[msg.sender][subscriptionID].paused = false;
+        address _merchant = Subscriptions[subscriptionID].merchant;
+        string memory _name = Subscriptions[subscriptionID].name;
         if (Subscribers[msg.sender][subscriptionID].nextBillingDate < block.timestamp) {
+            if (paymentToken.balanceOf(msg.sender) < Subscriptions[subscriptionID].price) revert InsufficientBalance();
             completeSubscription(subscriptionID, msg.sender);
+            emit SubscriptionsPurchased(msg.sender, _merchant, _name);
         }
 
-        emit ResumedRenewal(msg.sender, Subscriptions[subscriptionID].merchant, Subscriptions[subscriptionID].name);
+        emit ResumedRenewal(msg.sender, _merchant, _name);
     }
 
     /// @notice Cancels the caller's subscription and resets all associated data.
@@ -340,7 +418,6 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @param _subscriber The address of the subscriber being charged.
     function completeSubscription(uint256 subscriptionID, address _subscriber) internal {
         uint256 _amount = Subscriptions[subscriptionID].price;
-        if (IERC20(paymentToken).balanceOf(_subscriber) < _amount) revert InsufficientBalance();
         address _merchant = Subscriptions[subscriptionID].merchant;
         string memory _name = Subscriptions[subscriptionID].name;
         uint256 _duration = Subscriptions[subscriptionID].duration;
@@ -355,6 +432,14 @@ contract SUBSCRIPTION is ReentrancyGuard {
 
         Subscriptions[subscriptionID].toWithdraw += _amount;
 
-        IERC20(paymentToken).safeTransferFrom(_subscriber, address(this), _amount);
+        paymentToken.safeTransferFrom(_subscriber, address(this), _amount);
+    }
+
+    function completeWithdrawal(uint256 subscriptionID, address _merchant) internal {
+        uint256 _toWithdraw = Subscriptions[subscriptionID].toWithdraw;
+        Subscriptions[subscriptionID].toWithdraw = 0;
+        paymentToken.safeTransfer(_merchant, _toWithdraw);
+
+        emit Withdrawals (_merchant, subscriptionID);
     }
 }

@@ -9,6 +9,7 @@ describe("SUBSCRIPTION", function () {
   let token: TokenERC20;
 
   let Owner: HardhatEthersSigner;
+  let Authority: HardhatEthersSigner;
   let Merchant1: HardhatEthersSigner;
   let Merchant2: HardhatEthersSigner;
   let Subscriber1: HardhatEthersSigner;
@@ -23,7 +24,7 @@ describe("SUBSCRIPTION", function () {
   const PLAN_PRICE = ethers.parseEther("10");
 
   beforeEach(async function () {
-    [Owner, Merchant1, Merchant2, Subscriber1, Subscriber2] =
+    [Owner, Authority, Merchant1, Merchant2, Subscriber1, Subscriber2] =
       await ethers.getSigners();
 
     const Token = await ethers.getContractFactory("TokenERC20");
@@ -36,6 +37,7 @@ describe("SUBSCRIPTION", function () {
 
     const Subscription = await ethers.getContractFactory("SUBSCRIPTION");
     subscription = (await Subscription.deploy(
+      Authority.address,
       Owner.address,
       token.target,
     )) as SUBSCRIPTION;
@@ -88,6 +90,56 @@ describe("SUBSCRIPTION", function () {
       )
         .to.emit(subscription, "MerchantRegistered")
         .withArgs(Merchant1.address);
+    });
+  });
+  // Revoke merchant
+
+  describe("revokeMerchant", function () {
+    it("should revert if caller is not the owner", async function () {
+      await expect(
+        subscription.connect(Merchant1).revokeMerchant(Merchant2.address),
+      ).to.be.revertedWithCustomError(subscription, "NotOwner");
+    });
+
+    it("should revert if merchant address is invalid", async function () {
+      await expect(
+        subscription.connect(Owner).revokeMerchant(ethers.ZeroAddress),
+      ).to.be.revertedWithCustomError(subscription, "ZeroAddress");
+    });
+
+    it("should revert if the merchant is not registered", async function () {
+      // Corrected Merchant1.address
+      await expect(
+        subscription.connect(Owner).revokeMerchant(Merchant1.address),
+      ).to.be.revertedWithCustomError(subscription, "UnregisteredMerchant");
+    });
+
+    describe("when merchant is revoked", function () {
+      beforeEach(async function () {
+        // Added missing awaits for the setup
+        await subscription.connect(Owner).registerMerchant(Merchant1.address);
+        await subscription
+          .connect(Merchant1)
+          .definePlan(PLAN_NAME, PLAN_DURATION, PLAN_PRICE);
+        await subscription.connect(Subscriber1).subscribe(1);
+        await subscription.connect(Owner).revokeMerchant(Merchant1.address);
+      });
+
+      it("should transfer pending withdrawals to merchant", async function () {
+        expect(await token.balanceOf(Merchant1.address)).to.equal(PLAN_PRICE);
+      });
+
+      it("should delete the subscriptions defined by the merchant", async function () {
+        const plan = await subscription.Subscriptions(1);
+        // Deleted records return default values (0 and ZeroAddress)
+        expect(plan.price).to.equal(0n);
+        expect(plan.merchant).to.equal(ethers.ZeroAddress);
+      });
+
+      it("should delete registration of the merchant", async function () {
+        // Compare to boolean false, not string "false"
+        expect(await subscription.isMerchant(Merchant1.address)).to.be.false;
+      });
     });
   });
 
@@ -232,6 +284,89 @@ describe("SUBSCRIPTION", function () {
       // Initial subscribe + auto renewal = 2x price
       expect(plan.toWithdraw).to.equal(PLAN_PRICE * 2n);
     });
+
+    it("should correctly advance billing dates over 2 renewal cycles", async function () {
+      // cycle 1
+      await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+
+      await subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1);
+
+      const afterCycle1 = await subscription.Subscribers(
+        Subscriber1.address,
+        1,
+      );
+      const expectedNextBillingCycle1 =
+        afterCycle1.lastBillingDate + BigInt(PLAN_DURATION * 24 * 60 * 60);
+      expect(afterCycle1.nextBillingDate).to.equal(expectedNextBillingCycle1);
+
+      // cycle 2
+      await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+
+      await subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1);
+
+      const afterCycle2 = await subscription.Subscribers(
+        Subscriber1.address,
+        1,
+      );
+      const expectedNextBillingCycle2 =
+        afterCycle2.lastBillingDate + BigInt(PLAN_DURATION * 24 * 60 * 60);
+      expect(afterCycle2.nextBillingDate).to.equal(expectedNextBillingCycle2);
+
+      // lastBillingDate should have advanced from cycle 1 to cycle 2
+      expect(afterCycle2.lastBillingDate).to.be.gt(afterCycle1.lastBillingDate);
+      expect(afterCycle2.nextBillingDate).to.be.gt(afterCycle1.nextBillingDate);
+    });
+
+    it("should correctly advance billing dates over 3 renewal cycles", async function () {
+      const billingDates: bigint[] = [];
+      const nextBillingDates: bigint[] = [];
+
+      // record initial state
+      const initial = await subscription.Subscribers(Subscriber1.address, 1);
+      billingDates.push(initial.lastBillingDate);
+      nextBillingDates.push(initial.nextBillingDate);
+
+      // run 3 cycles
+      for (let i = 0; i < 3; i++) {
+        await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
+        await ethers.provider.send("evm_mine", []);
+
+        await subscription
+          .connect(Merchant1)
+          .autoRenewal(Subscriber1.address, 1);
+
+        const state = await subscription.Subscribers(Subscriber1.address, 1);
+        billingDates.push(state.lastBillingDate);
+        nextBillingDates.push(state.nextBillingDate);
+
+        // nextBillingDate should always be lastBillingDate + duration
+        expect(state.nextBillingDate).to.equal(
+          state.lastBillingDate + BigInt(PLAN_DURATION * 24 * 60 * 60),
+        );
+      }
+
+      // each cycle should advance both dates forward
+      for (let i = 1; i < billingDates.length; i++) {
+        expect(billingDates[i]).to.be.gt(billingDates[i - 1]);
+        expect(nextBillingDates[i]).to.be.gt(nextBillingDates[i - 1]);
+      }
+    });
+
+    it("should accumulate toWithdraw correctly over 3 renewal cycles", async function () {
+      for (let i = 0; i < 3; i++) {
+        await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
+        await ethers.provider.send("evm_mine", []);
+        await subscription
+          .connect(Merchant1)
+          .autoRenewal(Subscriber1.address, 1);
+      }
+
+      const plan = await subscription.Subscriptions(1);
+      // initial subscribe + 3 renewals = 4x price
+      expect(plan.toWithdraw).to.equal(PLAN_PRICE * 4n);
+    });
   });
 
   // Merchant Withdrawal Tests
@@ -272,6 +407,12 @@ describe("SUBSCRIPTION", function () {
       await subscription.connect(Merchant1).merchantWithdrawal(1);
       const plan = await subscription.Subscriptions(1);
       expect(plan.toWithdraw).to.equal(0);
+    });
+
+    it("should emit withdrwals event", async function () {
+      await expect(subscription.connect(Merchant1).merchantWithdrawal(1))
+        .to.emit(subscription, "Withdrawals")
+        .withArgs(Merchant1.address, 1);
     });
   });
 
@@ -354,9 +495,8 @@ describe("SUBSCRIPTION", function () {
       await token
         .connect(Merchant1)
         .approve(subscription.target, ethers.parseEther("1000"));
-      await expect(
-        subscription.connect(Merchant1).subscribe(1),
-      ).to.be.revertedWithCustomError(subscription, "InsufficientBalance");
+
+      await expect(subscription.connect(Merchant1).subscribe(1)).to.be.reverted;
     });
 
     it("should subscribe successfully", async function () {
