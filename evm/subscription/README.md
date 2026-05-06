@@ -7,7 +7,7 @@ A minimal template subscription contract built with Solidity and Hardhat.
 - ERC20 token based recurring payments
 - Merchant registration and plan management
 - Subscriber controls — pause, resume, and cancel
-- Auto renewal support
+- Manual Renewal
 - Merchant withdrawal logic
 - Hardhat test suite
 
