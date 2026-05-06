@@ -306,7 +306,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     ///      the subscription is paused, or the billing period has not yet elapsed.
     /// @param _subscriber The address of the subscriber to renew.
     /// @param subscriptionID The ID of the subscription plan.
-    function autoRenewal(address _subscriber, uint256 subscriptionID) public 
+    function subscriptionsRenewal(address _subscriber, uint256 subscriptionID) public 
     nonReentrant()
     checkDeactivation(subscriptionID)
     checkMerchant(subscriptionID, msg.sender) 
