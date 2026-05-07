@@ -204,7 +204,7 @@ describe("SUBSCRIPTION", function () {
 
   // Auto Renewal Tests
 
-  describe("subscriptionsRenewal", function () {
+  describe("autoRenewal", function () {
     beforeEach(async function () {
       // Register merchant, define plan, and subscribe
       await subscription.connect(Owner).registerMerchant(Merchant1.address);
@@ -217,26 +217,20 @@ describe("SUBSCRIPTION", function () {
     it("should revert if plan is deactivated", async function () {
       await subscription.connect(Merchant1).deactivatePlan(1);
       await expect(
-        subscription
-          .connect(Merchant1)
-          .subscriptionsRenewal(Subscriber1.address, 1),
+        subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1),
       ).to.be.revertedWithCustomError(subscription, "PlanDeactivated");
     });
 
     it("should revert if caller is not the merchant of the plan", async function () {
       await subscription.connect(Owner).registerMerchant(Merchant2.address);
       await expect(
-        subscription
-          .connect(Merchant2)
-          .subscriptionsRenewal(Subscriber1.address, 1),
+        subscription.connect(Merchant2).autoRenewal(Subscriber1.address, 1),
       ).to.be.revertedWithCustomError(subscription, "InvalidMerchant");
     });
 
     it("should revert if subscriber does not have an active subscription", async function () {
       await expect(
-        subscription
-          .connect(Merchant1)
-          .subscriptionsRenewal(Subscriber2.address, 1),
+        subscription.connect(Merchant1).autoRenewal(Subscriber2.address, 1),
       ).to.be.revertedWithCustomError(subscription, "InvalidID");
     });
 
@@ -248,17 +242,13 @@ describe("SUBSCRIPTION", function () {
       await ethers.provider.send("evm_mine", []);
 
       await expect(
-        subscription
-          .connect(Merchant1)
-          .subscriptionsRenewal(Subscriber1.address, 1),
+        subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1),
       ).to.be.revertedWithCustomError(subscription, "Paused");
     });
 
     it("should revert if billing period is not complete", async function () {
       await expect(
-        subscription
-          .connect(Merchant1)
-          .subscriptionsRenewal(Subscriber1.address, 1),
+        subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1),
       ).to.be.revertedWithCustomError(subscription, "PeriodIncomplete");
     });
 
@@ -267,9 +257,7 @@ describe("SUBSCRIPTION", function () {
       await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
       await ethers.provider.send("evm_mine", []);
 
-      await subscription
-        .connect(Merchant1)
-        .subscriptionsRenewal(Subscriber1.address, 1);
+      await subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1);
 
       const subscriber = await subscription.Subscribers(Subscriber1.address, 1);
       expect(subscriber.amountPaid).to.equal(PLAN_PRICE);
@@ -280,9 +268,7 @@ describe("SUBSCRIPTION", function () {
       await ethers.provider.send("evm_mine", []);
 
       await expect(
-        subscription
-          .connect(Merchant1)
-          .subscriptionsRenewal(Subscriber1.address, 1),
+        subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1),
       )
         .to.emit(subscription, "AutoRenewals")
         .withArgs(Subscriber1.address, Merchant1.address, PLAN_NAME);
@@ -292,9 +278,7 @@ describe("SUBSCRIPTION", function () {
       await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
       await ethers.provider.send("evm_mine", []);
 
-      await subscription
-        .connect(Merchant1)
-        .subscriptionsRenewal(Subscriber1.address, 1);
+      await subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1);
 
       const plan = await subscription.Subscriptions(1);
       // Initial subscribe + auto renewal = 2x price
@@ -306,9 +290,7 @@ describe("SUBSCRIPTION", function () {
       await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
       await ethers.provider.send("evm_mine", []);
 
-      await subscription
-        .connect(Merchant1)
-        .subscriptionsRenewal(Subscriber1.address, 1);
+      await subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1);
 
       const afterCycle1 = await subscription.Subscribers(
         Subscriber1.address,
@@ -322,9 +304,7 @@ describe("SUBSCRIPTION", function () {
       await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
       await ethers.provider.send("evm_mine", []);
 
-      await subscription
-        .connect(Merchant1)
-        .subscriptionsRenewal(Subscriber1.address, 1);
+      await subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1);
 
       const afterCycle2 = await subscription.Subscribers(
         Subscriber1.address,
@@ -355,7 +335,7 @@ describe("SUBSCRIPTION", function () {
 
         await subscription
           .connect(Merchant1)
-          .subscriptionsRenewal(Subscriber1.address, 1);
+          .autoRenewal(Subscriber1.address, 1);
 
         const state = await subscription.Subscribers(Subscriber1.address, 1);
         billingDates.push(state.lastBillingDate);
@@ -380,7 +360,7 @@ describe("SUBSCRIPTION", function () {
         await ethers.provider.send("evm_mine", []);
         await subscription
           .connect(Merchant1)
-          .subscriptionsRenewal(Subscriber1.address, 1);
+          .autoRenewal(Subscriber1.address, 1);
       }
 
       const plan = await subscription.Subscriptions(1);
@@ -691,9 +671,7 @@ describe("SUBSCRIPTION", function () {
       await ethers.provider.send("evm_mine", []);
 
       await expect(
-        subscription
-          .connect(Merchant1)
-          .subscriptionsRenewal(Subscriber1.address, 1),
+        subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1),
       ).to.be.revertedWithCustomError(subscription, "InvalidID");
     });
 

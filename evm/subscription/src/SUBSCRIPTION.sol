@@ -20,7 +20,7 @@ error InsufficientBalance();
 error PeriodIncomplete();
 error NothingToWithdraw();
 error AlreadyDeactivated();
-error PlanDeactivated();
+error DeactivatedPlan();
 error IdenticalAddress();
 error NotAuthorized(address caller);
 error InvalidAddress();
@@ -37,7 +37,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     // STATE DECLARATIONS
 
     /// @notice The address of the contract authority responsible for transferring ownership.
-    address public authority;
+    address public immutable authority;
 
     /// @notice The address of the new proposed owner of the contract.
     address pendingOwner;
@@ -90,7 +90,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @notice Reverts if the given subscription plan has been deactivated.
     /// @param _subscriptionID The subscription plan ID to check.
     modifier checkDeactivation(uint256 _subscriptionID) {
-        if (Subscriptions[_subscriptionID].deactivated) revert PlanDeactivated();
+        if (Subscriptions[_subscriptionID].deactivated) revert DeactivatedPlan();
         _;
     }
 
@@ -156,20 +156,20 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @param _purchaser The address of the subscriber.
     /// @param _merchant The address of the merchant.
     /// @param _name The name of the subscription plan.
-    event SubscriptionsPurchased(address indexed _purchaser, address indexed _merchant, string _name);
+    event SubscriptionPurchased(address indexed _purchaser, address indexed _merchant, string _name);
 
     /// @notice Emitted when a subscriber cancels their subscription.
     /// @param _subscriber The address of the subscriber.
     /// @param _merchant The address of the merchant.
     /// @param _name The name of the subscription plan.
-    event Cancellations(address indexed _subscriber, address indexed _merchant, string _name);
+    event Cancelled(address indexed _subscriber, address indexed _merchant, string _name);
 
     /// @notice Emitted when a merchant defines a new subscription plan.
     /// @param _merchant The address of the merchant.
     /// @param _name The name of the plan.
     /// @param _duration The billing cycle duration in days.
     /// @param _price The price per billing cycle in payment tokens.
-    event PlansDefined(address indexed _merchant, string _name, uint256 indexed _duration, uint256 indexed _price);
+    event PlanDefined(address indexed _merchant, string _name, uint256 indexed _duration, uint256 indexed _price);
 
     /// @notice Emitted when a new merchant is registered by the owner.
     /// @param _merchant The address of the newly registered merchant.
@@ -179,7 +179,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @param _subscriber The address of the subscriber.
     /// @param _merchant The address of the merchant who triggered the renewal.
     /// @param _name The name of the subscription plan.
-    event AutoRenewals(address indexed _subscriber, address indexed _merchant, string _name);
+    event AutoRenewed(address indexed _subscriber, address indexed _merchant, string _name);
 
     /// @notice Emitted when a subscriber pauses their auto renewal.
     /// @param _subscriber The address of the subscriber.
@@ -196,12 +196,22 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @notice Emitted when a merchant deactivates a subscription plan.
     /// @param _merchant The address of the merchant.
     /// @param _subscriptionID The ID of the deactivated plan.
-    event PlansDeactivated(address indexed _merchant, uint256 indexed _subscriptionID);
+    event PlanDeactivated(address indexed _merchant, uint256 indexed _subscriptionID);
 
-    /// @notice Emmited when a withdrawal from a merchant is completed.
-    /// @param _merchant The address of the merchant
+    /// @notice Emitted when a withdrawal from a merchant is completed.
+    /// @param _merchant The address of the merchant.
     /// @param _subscriptionsID ID of the subscription the merchant has withdrawn from.
-    event Withdrawals (address indexed _merchant, uint256 indexed _subscriptionsID);
+    event Withdrawal (address indexed _merchant, uint256 indexed _subscriptionsID);
+
+    /// @notice Emitted whenever the transfer of ownership process has started.
+    /// @param from The address of the current Owner.
+    /// @param to The address of the proposed Owner.
+    event OwnershipTransferStarted(address indexed from, address indexed to);
+
+    /// @notice Emitted when the proposed Owner accepts Ownership
+    /// @param from The address of the current Owner.
+    /// @param to The address of the proposed Owner.
+    event OwnershipTransferred(address indexed from, address indexed to);
 
     // UNIQUE IDENTIFICATION NUMBERING
 
@@ -234,6 +244,8 @@ contract SUBSCRIPTION is ReentrancyGuard {
         if (newOwner == owner || newOwner == authority) revert InvalidAddress();
         if (newOwner == pendingOwner) revert AlreadyPending();
         pendingOwner = newOwner;
+
+        emit OwnershipTransferStarted (owner, newOwner);
     }
 
     /// @notice Completes transfer of ownership to the proposed owner.
@@ -241,6 +253,8 @@ contract SUBSCRIPTION is ReentrancyGuard {
     function acceptOwnership() public {
         if (msg.sender != pendingOwner) revert NotAuthorized(msg.sender);
         delete pendingOwner;
+        emit OwnershipTransferred(owner, msg.sender);
+        
         owner = msg.sender;
     }
 
@@ -256,7 +270,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
         emit MerchantRegistered(_merchant);
     }
 
-    /// @notice Revokes the registration off a merchant. Transferring the pending withdrawals to the merchant.
+    /// @notice Revokes the registration of a merchant. Transferring the pending withdrawals to the merchant.
     /// @dev Only callable by the contract Owner. Reverts if the address is zero or the merchant is not registered.
     /// @param _merchant The address of the merchant to be revoked.
     function revokeMerchant(address _merchant) public 
@@ -264,15 +278,13 @@ contract SUBSCRIPTION is ReentrancyGuard {
     checkAddress(_merchant)
     checkMerchantRegistration(_merchant) {
         uint256[] memory _subscriptions = merchantSubscriptions[_merchant];
-        for (uint256 i = 0; i < merchantSubscriptions[_merchant].length; i++) {
+        uint256 len = merchantSubscriptions[_merchant].length;
+        for (uint256 i = 0; i < len; i++) {
             uint256 currentNumber = _subscriptions[i];
-            if (Subscriptions[currentNumber].toWithdraw > 0) {
-                completeWithdrawal(currentNumber, _merchant);
-            }
-            delete Subscriptions[currentNumber];
+            Subscriptions[currentNumber].deactivated = true;
         }
-        delete isMerchant[_merchant];
-        delete merchantSubscriptions[_merchant];
+        isMerchant[_merchant] = false;
+        
     }
 
     // MERCHANT INTERACTIONS
@@ -298,7 +310,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
         });
         subscriptionIdCount++;
 
-        emit PlansDefined(msg.sender, _name, _duration, _price);
+        emit PlanDefined(msg.sender, _name, _duration, _price);
     }
 
     /// @notice Triggers an auto renewal for a subscriber once their billing period has ended.
@@ -306,7 +318,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     ///      the subscription is paused, or the billing period has not yet elapsed.
     /// @param _subscriber The address of the subscriber to renew.
     /// @param subscriptionID The ID of the subscription plan.
-    function subscriptionsRenewal(address _subscriber, uint256 subscriptionID) public 
+    function autoRenewal(address _subscriber, uint256 subscriptionID) public 
     nonReentrant()
     checkDeactivation(subscriptionID)
     checkMerchant(subscriptionID, msg.sender) 
@@ -315,7 +327,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
         if (block.timestamp < Subscribers[_subscriber][subscriptionID].nextBillingDate) revert PeriodIncomplete();
 
         completeSubscription(subscriptionID, _subscriber);
-        emit AutoRenewals(_subscriber, msg.sender, Subscriptions[subscriptionID].name);
+        emit AutoRenewed(_subscriber, msg.sender, Subscriptions[subscriptionID].name);
     }
 
     /// @notice Allows a merchant to withdraw accumulated subscription payments for a plan.
@@ -324,8 +336,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     function merchantWithdrawal(uint256 subscriptionID) public 
     nonReentrant()
     checkMerchant(subscriptionID, msg.sender) {
-        uint256 _toWithdraw = Subscriptions[subscriptionID].toWithdraw;
-        if(_toWithdraw == 0) revert NothingToWithdraw();
+        if (Subscriptions[subscriptionID].toWithdraw == 0) revert NothingToWithdraw();
         completeWithdrawal(subscriptionID, msg.sender);
     }
 
@@ -333,11 +344,12 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @dev Only callable by the merchant who owns the plan. Existing subscribers are unaffected.
     /// @param _subscriptionID The ID of the plan to deactivate.
     function deactivatePlan(uint256 _subscriptionID) public 
+    checkMerchantRegistration(Subscriptions[_subscriptionID].merchant)
     checkMerchant(_subscriptionID, msg.sender) {
         if (Subscriptions[_subscriptionID].deactivated) revert AlreadyDeactivated();
         Subscriptions[_subscriptionID].deactivated = true;
 
-        emit PlansDeactivated(msg.sender, _subscriptionID);
+        emit PlanDeactivated(msg.sender, _subscriptionID);
     }
 
     // CUSTOMER INTERACTIONS
@@ -355,13 +367,15 @@ contract SUBSCRIPTION is ReentrancyGuard {
         if (paymentToken.balanceOf(msg.sender) < _price) revert InsufficientBalance();
         address _merchant = Subscriptions[subscriptionID].merchant;
         completeSubscription(subscriptionID, msg.sender);
-        emit SubscriptionsPurchased(msg.sender, _merchant, Subscriptions[subscriptionID].name);
+
+        emit SubscriptionPurchased(msg.sender, _merchant, Subscriptions[subscriptionID].name);
     }
 
     /// @notice Pauses auto renewal for the caller's subscription.
     /// @dev The subscription remains active but the merchant cannot trigger auto renewals while paused.
     /// @param subscriptionID The ID of the subscription plan to pause.
-    function pauseRenewal(uint256 subscriptionID) public  
+    function pauseRenewal(uint256 subscriptionID) public 
+    checkDeactivation(subscriptionID) 
     checkSubscriber(msg.sender, subscriptionID) {
         if (Subscribers[msg.sender][subscriptionID].paused) revert AlreadyPaused();
         Subscribers[msg.sender][subscriptionID].paused = true;
@@ -385,7 +399,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
         if (Subscribers[msg.sender][subscriptionID].nextBillingDate < block.timestamp) {
             if (paymentToken.balanceOf(msg.sender) < Subscriptions[subscriptionID].price) revert InsufficientBalance();
             completeSubscription(subscriptionID, msg.sender);
-            emit SubscriptionsPurchased(msg.sender, _merchant, _name);
+            emit SubscriptionPurchased(msg.sender, _merchant, _name);
         }
 
         emit ResumedRenewal(msg.sender, _merchant, _name);
@@ -407,7 +421,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
             paused: false
         });
 
-        emit Cancellations(msg.sender, _merchant, _name);
+        emit Cancelled(msg.sender, _merchant, _name);
     }
 
     // INTERNAL FUNCTIONS
@@ -437,11 +451,17 @@ contract SUBSCRIPTION is ReentrancyGuard {
         paymentToken.safeTransferFrom(_subscriber, address(this), _amount);
     }
 
+    /// @notice complete withdrawal when called by the merchant.
+    /// @dev Checks if the merchant requested withrawal is valid.
+    ///      Transfers Payment Tokens pending in the subscriptions details.
+    ///      Sets withdraw storage to 0 before transaction.
+    /// @param subscriptionID ID of the subscription contaning the pending tokens.
+    /// @param _merchant The address of the merchant who is requesting the withdrawal. 
     function completeWithdrawal(uint256 subscriptionID, address _merchant) internal {
         uint256 _toWithdraw = Subscriptions[subscriptionID].toWithdraw;
         Subscriptions[subscriptionID].toWithdraw = 0;
         paymentToken.safeTransfer(_merchant, _toWithdraw);
 
-        emit Withdrawals (_merchant, subscriptionID);
+        emit Withdrawal(_merchant, subscriptionID);
     }
 }
