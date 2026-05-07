@@ -40,7 +40,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     address public immutable authority;
 
     /// @notice The address of the new proposed owner of the contract.
-    address pendingOwner;
+    address public pendingOwner;
 
     /// @notice The address of the contract owner responsible for registering merchants.
     address public owner;
@@ -221,6 +221,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     //DEPLOYMENT
 
     /// @notice Deploys the subscription contract with a designated owner and payment token.
+    /// @notice _authority The address of the contract Authority who can trigger Transfer of Ownership.
     /// @param _owner The address of the contract owner who can register merchants.
     /// @param _token The address of the ERC20 token used for payments.
     constructor(address _authority, address _owner, address _token) 

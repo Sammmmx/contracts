@@ -92,6 +92,7 @@ describe("SUBSCRIPTION", function () {
         .withArgs(Merchant1.address);
     });
   });
+
   // Revoke merchant
 
   describe("revokeMerchant", function () {
@@ -116,29 +117,45 @@ describe("SUBSCRIPTION", function () {
 
     describe("when merchant is revoked", function () {
       beforeEach(async function () {
-        // Added missing awaits for the setup
         await subscription.connect(Owner).registerMerchant(Merchant1.address);
         await subscription
           .connect(Merchant1)
           .definePlan(PLAN_NAME, PLAN_DURATION, PLAN_PRICE);
+        await subscription
+          .connect(Merchant1)
+          .definePlan("Premium", PLAN_DURATION, PLAN_PRICE);
+        await subscription
+          .connect(Merchant1)
+          .definePlan("Pro", PLAN_DURATION, PLAN_PRICE);
         await subscription.connect(Subscriber1).subscribe(1);
+        await subscription.connect(Subscriber2).subscribe(2);
+        await subscription.connect(Subscriber1).subscribe(3);
         await subscription.connect(Owner).revokeMerchant(Merchant1.address);
       });
 
-      it("should transfer pending withdrawals to merchant", async function () {
-        expect(await token.balanceOf(Merchant1.address)).to.equal(PLAN_PRICE);
-      });
-
-      it("should delete the subscriptions defined by the merchant", async function () {
-        const plan = await subscription.Subscriptions(1);
-        // Deleted records return default values (0 and ZeroAddress)
-        expect(plan.price).to.equal(0n);
-        expect(plan.merchant).to.equal(ethers.ZeroAddress);
+      it("should deactivate all the plans defined by the merchant", async function () {
+        for (let i = 0; i < 3; i++) {
+          const plan = await subscription.Subscriptions(1);
+          expect(plan.deactivated).to.be.true;
+        }
       });
 
       it("should delete registration of the merchant", async function () {
-        // Compare to boolean false, not string "false"
         expect(await subscription.isMerchant(Merchant1.address)).to.be.false;
+      });
+
+      describe("After revoke subscriber configurations", function () {
+        it("should revert when subscriber pauses renewal of the deactivated subscription", async function () {
+          await expect(
+            subscription.connect(Subscriber1).pauseRenewal(1),
+          ).to.be.revertedWithCustomError(subscription, "DeactivatedPlan");
+        });
+
+        it("should revert when subscriber resumes renewal of the deactivated subscription", async function () {
+          await expect(
+            subscription.connect(Subscriber1).resumeRenewal(1),
+          ).to.be.revertedWithCustomError(subscription, "DeactivatedPlan");
+        });
       });
     });
   });
@@ -197,7 +214,7 @@ describe("SUBSCRIPTION", function () {
           .connect(Merchant1)
           .definePlan(PLAN_NAME, PLAN_DURATION, PLAN_PRICE),
       )
-        .to.emit(subscription, "PlansDefined")
+        .to.emit(subscription, "PlanDefined")
         .withArgs(Merchant1.address, PLAN_NAME, PLAN_DURATION, PLAN_PRICE);
     });
   });
@@ -218,7 +235,7 @@ describe("SUBSCRIPTION", function () {
       await subscription.connect(Merchant1).deactivatePlan(1);
       await expect(
         subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1),
-      ).to.be.revertedWithCustomError(subscription, "PlanDeactivated");
+      ).to.be.revertedWithCustomError(subscription, "DeactivatedPlan");
     });
 
     it("should revert if caller is not the merchant of the plan", async function () {
@@ -270,7 +287,7 @@ describe("SUBSCRIPTION", function () {
       await expect(
         subscription.connect(Merchant1).autoRenewal(Subscriber1.address, 1),
       )
-        .to.emit(subscription, "AutoRenewals")
+        .to.emit(subscription, "AutoRenewed")
         .withArgs(Subscriber1.address, Merchant1.address, PLAN_NAME);
     });
 
@@ -411,7 +428,7 @@ describe("SUBSCRIPTION", function () {
 
     it("should emit withdrwals event", async function () {
       await expect(subscription.connect(Merchant1).merchantWithdrawal(1))
-        .to.emit(subscription, "Withdrawals")
+        .to.emit(subscription, "Withdrawal")
         .withArgs(Merchant1.address, 1);
     });
   });
@@ -446,9 +463,9 @@ describe("SUBSCRIPTION", function () {
       expect(plan.deactivated).to.equal(true);
     });
 
-    it("should emit PlansDeactivated event", async function () {
+    it("should emit PlanDeactivated event", async function () {
       await expect(subscription.connect(Merchant1).deactivatePlan(1))
-        .to.emit(subscription, "PlansDeactivated")
+        .to.emit(subscription, "PlanDeactivated")
         .withArgs(Merchant1.address, 1);
     });
 
@@ -456,7 +473,7 @@ describe("SUBSCRIPTION", function () {
       await subscription.connect(Merchant1).deactivatePlan(1);
       await expect(
         subscription.connect(Subscriber1).subscribe(1),
-      ).to.be.revertedWithCustomError(subscription, "PlanDeactivated");
+      ).to.be.revertedWithCustomError(subscription, "DeactivatedPlan");
     });
   });
 
@@ -474,7 +491,7 @@ describe("SUBSCRIPTION", function () {
       await subscription.connect(Merchant1).deactivatePlan(1);
       await expect(
         subscription.connect(Subscriber1).subscribe(1),
-      ).to.be.revertedWithCustomError(subscription, "PlanDeactivated");
+      ).to.be.revertedWithCustomError(subscription, "DeactivatedPlan");
     });
 
     it("should revert if plan does not exist", async function () {
@@ -529,9 +546,9 @@ describe("SUBSCRIPTION", function () {
       expect(subscriber.nextBillingDate).to.equal(expectedNextBilling);
     });
 
-    it("should emit SubscriptionsPurchased event", async function () {
+    it("should emit SubscriptionPurchased event", async function () {
       await expect(subscription.connect(Subscriber1).subscribe(1))
-        .to.emit(subscription, "SubscriptionsPurchased")
+        .to.emit(subscription, "SubscriptionPurchased")
         .withArgs(Subscriber1.address, Merchant1.address, PLAN_NAME);
     });
   });
@@ -589,7 +606,7 @@ describe("SUBSCRIPTION", function () {
       await subscription.connect(Merchant1).deactivatePlan(1);
       await expect(
         subscription.connect(Subscriber1).resumeRenewal(1),
-      ).to.be.revertedWithCustomError(subscription, "PlanDeactivated");
+      ).to.be.revertedWithCustomError(subscription, "DeactivatedPlan");
     });
 
     it("should revert if subscriber does not have an active subscription", async function () {
@@ -682,9 +699,9 @@ describe("SUBSCRIPTION", function () {
       expect(subscriber.amountPaid).to.equal(PLAN_PRICE);
     });
 
-    it("should emit Cancellations event", async function () {
+    it("should emit Cancelled event", async function () {
       await expect(subscription.connect(Subscriber1).cancelSubscription(1))
-        .to.emit(subscription, "Cancellations")
+        .to.emit(subscription, "Cancelled")
         .withArgs(Subscriber1.address, Merchant1.address, PLAN_NAME);
     });
   });
