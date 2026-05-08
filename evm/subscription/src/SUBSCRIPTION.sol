@@ -352,7 +352,6 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @dev Only callable by the merchant who owns the plan. Existing subscribers are unaffected.
     /// @param _subscriptionID The ID of the plan to deactivate.
     function deactivatePlan(uint256 _subscriptionID) public 
-    checkMerchantRegistration(Subscriptions[_subscriptionID].merchant)
     checkMerchant(_subscriptionID, msg.sender) {
         if (Subscriptions[_subscriptionID].deactivated) revert AlreadyDeactivated();
         Subscriptions[_subscriptionID].deactivated = true;
