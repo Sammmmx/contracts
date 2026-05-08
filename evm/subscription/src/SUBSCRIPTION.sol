@@ -283,7 +283,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     checkAddress(_merchant)
     checkMerchantRegistration(_merchant) {
         uint256[] memory _subscriptions = merchantSubscriptions[_merchant];
-        uint256 len = merchantSubscriptions[_merchant].length;
+        uint256 len = _subscriptions.length;
         for (uint256 i = 0; i < len; i++) {
             uint256 currentNumber = _subscriptions[i];
             Subscriptions[currentNumber].deactivated = true;

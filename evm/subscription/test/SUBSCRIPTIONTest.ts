@@ -93,6 +93,110 @@ describe("SUBSCRIPTION", function () {
     });
   });
 
+  // Transfer Ownership Tests
+ 
+  describe("transferOwnership", function () {
+    it("should revert if caller is not owner or authority", async function () {
+      await expect(
+        subscription.connect(Merchant1).transferOwnership(Merchant2.address),
+      )
+        .to.be.revertedWithCustomError(subscription, "NotAuthorized")
+        .withArgs(Merchant1.address);
+    });
+ 
+    it("should revert if new owner address is zero", async function () {
+      await expect(
+        subscription.connect(Owner).transferOwnership(ethers.ZeroAddress),
+      ).to.be.revertedWithCustomError(subscription, "ZeroAddress");
+    });
+ 
+    it("should revert if new owner is the current owner", async function () {
+      await expect(
+        subscription.connect(Owner).transferOwnership(Owner.address),
+      ).to.be.revertedWithCustomError(subscription, "InvalidAddress");
+    });
+ 
+    it("should revert if new owner is the authority", async function () {
+      await expect(
+        subscription.connect(Owner).transferOwnership(Authority.address),
+      ).to.be.revertedWithCustomError(subscription, "InvalidAddress");
+    });
+ 
+    it("should revert if new owner is already pending", async function () {
+      await subscription.connect(Owner).transferOwnership(Merchant1.address);
+      await expect(
+        subscription.connect(Owner).transferOwnership(Merchant1.address),
+      ).to.be.revertedWithCustomError(subscription, "AlreadyPending");
+    });
+ 
+    it("should allow owner to initiate transfer", async function () {
+      await subscription.connect(Owner).transferOwnership(Merchant1.address);
+      expect(await subscription.pendingOwner()).to.equal(Merchant1.address);
+    });
+ 
+    it("should allow authority to initiate transfer", async function () {
+      await subscription.connect(Authority).transferOwnership(Merchant1.address);
+      expect(await subscription.pendingOwner()).to.equal(Merchant1.address);
+    });
+ 
+    it("should emit OwnershipTransferStarted event", async function () {
+      await expect(
+        subscription.connect(Owner).transferOwnership(Merchant1.address),
+      )
+        .to.emit(subscription, "OwnershipTransferStarted")
+        .withArgs(Owner.address, Merchant1.address);
+    });
+  });
+ 
+  // Accept Ownership Tests
+ 
+  describe("acceptOwnership", function () {
+    beforeEach(async function () {
+      await subscription.connect(Owner).transferOwnership(Merchant1.address);
+    });
+ 
+    it("should revert if caller is not the pending owner", async function () {
+      await expect(subscription.connect(Merchant2).acceptOwnership())
+        .to.be.revertedWithCustomError(subscription, "NotAuthorized")
+        .withArgs(Merchant2.address);
+    });
+ 
+    it("should revert if current owner tries to accept", async function () {
+      await expect(subscription.connect(Owner).acceptOwnership())
+        .to.be.revertedWithCustomError(subscription, "NotAuthorized")
+        .withArgs(Owner.address);
+    });
+ 
+    it("should transfer ownership to pending owner", async function () {
+      await subscription.connect(Merchant1).acceptOwnership();
+      expect(await subscription.owner()).to.equal(Merchant1.address);
+    });
+ 
+    it("should clear pending owner after acceptance", async function () {
+      await subscription.connect(Merchant1).acceptOwnership();
+      expect(await subscription.pendingOwner()).to.equal(ethers.ZeroAddress);
+    });
+ 
+    it("should allow new owner to register merchants after transfer", async function () {
+      await subscription.connect(Merchant1).acceptOwnership();
+      await subscription.connect(Merchant1).registerMerchant(Merchant2.address);
+      expect(await subscription.isMerchant(Merchant2.address)).to.equal(true);
+    });
+ 
+    it("should revoke old owner permissions after transfer", async function () {
+      await subscription.connect(Merchant1).acceptOwnership();
+      await expect(
+        subscription.connect(Owner).registerMerchant(Merchant2.address),
+      ).to.be.revertedWithCustomError(subscription, "NotOwner");
+    });
+ 
+    it("should emit OwnershipTransferred event", async function () {
+      await expect(subscription.connect(Merchant1).acceptOwnership())
+        .to.emit(subscription, "OwnershipTransferred")
+        .withArgs(Owner.address, Merchant1.address);
+    });
+  });
+
   // Revoke merchant
 
   describe("revokeMerchant", function () {
