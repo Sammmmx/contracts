@@ -225,7 +225,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
     //DEPLOYMENT
 
     /// @notice Deploys the subscription contract with a designated owner and payment token.
-    /// @notice _authority The address of the contract Authority who can trigger Transfer of Ownership.
+    /// @param _authority The address of the contract Authority who can trigger Transfer of Ownership.
     /// @param _owner The address of the contract owner who can register merchants.
     /// @param _token The address of the ERC20 token used for payments.
     constructor(address _authority, address _owner, address _token) 
