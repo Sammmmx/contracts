@@ -200,8 +200,8 @@ contract SUBSCRIPTION is ReentrancyGuard {
 
     /// @notice Emitted when a withdrawal from a merchant is completed.
     /// @param _merchant The address of the merchant.
-    /// @param _subscriptionsID ID of the subscription the merchant has withdrawn from.
-    event Withdrawal (address indexed _merchant, uint256 indexed _subscriptionsID);
+    /// @param _subscriptionID ID of the subscription from which the merchant has withdrawn.
+    event Withdrawal (address indexed _merchant, uint256 indexed _subscriptionID);
 
     /// @notice Emitted whenever the transfer of ownership process has started.
     /// @param from The address of the current Owner.
@@ -212,6 +212,10 @@ contract SUBSCRIPTION is ReentrancyGuard {
     /// @param from The address of the current Owner.
     /// @param to The address of the proposed Owner.
     event OwnershipTransferred(address indexed from, address indexed to);
+
+    /// @notice Emitted when a Merchant's Registration is Revoked.
+    /// @param _merchant The address of the Merchant to be revoked.
+    event MerchantRevoked(address indexed _merchant);
 
     // UNIQUE IDENTIFICATION NUMBERING
 
@@ -271,7 +275,7 @@ contract SUBSCRIPTION is ReentrancyGuard {
         emit MerchantRegistered(_merchant);
     }
 
-    /// @notice Revokes the registration of a merchant. Transferring the pending withdrawals to the merchant.
+    /// @notice Revokes the registration of a merchant. Deactivating all the existing plans defined by the merchant.
     /// @dev Only callable by the contract Owner. Reverts if the address is zero or the merchant is not registered.
     /// @param _merchant The address of the merchant to be revoked.
     function revokeMerchant(address _merchant) public 
@@ -283,9 +287,12 @@ contract SUBSCRIPTION is ReentrancyGuard {
         for (uint256 i = 0; i < len; i++) {
             uint256 currentNumber = _subscriptions[i];
             Subscriptions[currentNumber].deactivated = true;
+
+            emit PlanDeactivated(_merchant, currentNumber);
         }
         isMerchant[_merchant] = false;
-        
+
+        emit MerchantRevoked(_merchant);
     }
 
     // MERCHANT INTERACTIONS
